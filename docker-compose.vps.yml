@@ -15,12 +15,19 @@ services:
       - VPS_API_KEY=280896Ab@
       - REDIS_URL=redis://redis:6379
     networks:
-      - pastorini-net
+      - inoovaweb
     depends_on:
       - api
       - redis
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ia-disparo.rule=Host(`iadisparo.inoovaweb.cloud`)"
+      - "traefik.http.routers.ia-disparo.entrypoints=websecure"
+      - "traefik.http.routers.ia-disparo.tls=true"
+      - "traefik.http.routers.ia-disparo.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ia-disparo.loadbalancer.server.port=4000"
 
-  # Pastorini API - Sua Instância Atual (Configurada conforme Documentação)
+  # Pastorini API - Sua Instância Atual
   api:
     image: SEU_USUARIO/pastorini-api:latest
     container_name: pastorini-api
@@ -39,12 +46,17 @@ services:
       - REDIS_PORT=6379
       - LICENSE_KEY=SUA_CHAVE_LICENCA
     networks:
-      - pastorini-net
+      - inoovaweb
     depends_on:
       - postgres
       - redis
-    ports:
-      - "3000:3000"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pastorini.rule=Host(`zap.inoovaweb.com.br`)"
+      - "traefik.http.routers.pastorini.entrypoints=websecure"
+      - "traefik.http.routers.pastorini.tls=true"
+      - "traefik.http.routers.pastorini.tls.certresolver=letsencrypt"
+      - "traefik.http.services.pastorini.loadbalancer.server.port=3000"
 
   # Redis - Cache e Filas
   redis:
@@ -52,7 +64,7 @@ services:
     container_name: pastorini-redis
     command: redis-server --appendonly yes
     networks:
-      - pastorini-net
+      - inoovaweb
     volumes:
       - redis_data:/data
 
@@ -65,13 +77,13 @@ services:
       POSTGRES_USER: pastorini
       POSTGRES_PASSWORD: SUA_SENHA_SEGURA
     networks:
-      - pastorini-net
+      - inoovaweb
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
 networks:
-  pastorini-net:
-    driver: bridge
+  inoovaweb:
+    external: true
 
 volumes:
   postgres_data:
