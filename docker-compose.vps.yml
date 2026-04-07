@@ -1,24 +1,19 @@
 version: '3.8'
 
 services:
-  # Emerald Worker & Proxy (Integration Supabase <-> Pastorini API)
-  emerald-service:
+  # IA Disparo Worker & Proxy (Integration Supabase <-> Pastorini API)
+  ia-disparo-service:
     build: ./vps-backend
-    container_name: emerald-vps-backend
+    container_name: ia-disparo-backend
     restart: always
-    ports:
-      - "4000:4000"
     environment:
-      - SUPABASE_URL=SUA_URL_AQUI
-      - SUPABASE_SERVICE_KEY=SUA_SERVICE_KEY_AQUI
-      - VPS_API_URL=http://api:3000  # Comunicação interna via rede docker
+      - SUPABASE_URL=https://odkoigujqlxudhzriusv.supabase.co
+      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ka29pZ3VqcWx4dWRoenJpdXN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Nzg3MDYsImV4cCI6MjA5MDE1NDcwNn0.dnVnzzcn1TYxlN3XKjluvvaGEGmAhVUjKqfkSAZeYh8
+      - VPS_API_URL=https://zap.inoovaweb.com.br  # Usando a API que já está rodando
       - VPS_API_KEY=280896Ab@
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://redis:6379  # Se o worker precisar de um redis local para sua própria fila
     networks:
       - inoovaweb
-    depends_on:
-      - api
-      - redis
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.ia-disparo.rule=Host(`iadisparo.inoovaweb.cloud`)"
@@ -27,64 +22,13 @@ services:
       - "traefik.http.routers.ia-disparo.tls.certresolver=letsencrypt"
       - "traefik.http.services.ia-disparo.loadbalancer.server.port=4000"
 
-  # Pastorini API - Sua Instância Atual
-  api:
-    image: SEU_USUARIO/pastorini-api:latest
-    container_name: pastorini-api
-    restart: always
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - PANEL_API_KEY=280896Ab@
-      - STORAGE_TYPE=postgres+redis
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=pastorini_api
-      - POSTGRES_USER=pastorini
-      - POSTGRES_PASSWORD=SUA_SENHA_SEGURA
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - LICENSE_KEY=SUA_CHAVE_LICENCA
-    networks:
-      - inoovaweb
-    depends_on:
-      - postgres
-      - redis
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.pastorini.rule=Host(`zap.inoovaweb.com.br`)"
-      - "traefik.http.routers.pastorini.entrypoints=websecure"
-      - "traefik.http.routers.pastorini.tls=true"
-      - "traefik.http.routers.pastorini.tls.certresolver=letsencrypt"
-      - "traefik.http.services.pastorini.loadbalancer.server.port=3000"
-
-  # Redis - Cache e Filas
+  # Redis local para a fila do Worker (Bull Queue)
   redis:
     image: redis:7-alpine
-    container_name: pastorini-redis
-    command: redis-server --appendonly yes
+    container_name: ia-disparo-redis
     networks:
       - inoovaweb
-    volumes:
-      - redis_data:/data
-
-  # PostgreSQL - Banco de Dados da API
-  postgres:
-    image: postgres:15-alpine
-    container_name: pastorini-db
-    environment:
-      POSTGRES_DB: pastorini_api
-      POSTGRES_USER: pastorini
-      POSTGRES_PASSWORD: SUA_SENHA_SEGURA
-    networks:
-      - inoovaweb
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
 
 networks:
   inoovaweb:
     external: true
-
-volumes:
-  postgres_data:
-  redis_data:
