@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, Navigate } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import Connections from "./pages/Connections";
 import Campaigns from "./pages/Campaigns";
@@ -11,6 +12,8 @@ import Audience from "./pages/Audience";
 import Reports from "./pages/Reports";
 import Plan from "./pages/Plan";
 import Integrations from "./pages/Integrations";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,13 +25,19 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<DashboardLayout><Dashboard /></DashboardLayout>} />
-          <Route path="/connections" element={<DashboardLayout><Connections /></DashboardLayout>} />
-          <Route path="/campaigns" element={<DashboardLayout><Campaigns /></DashboardLayout>} />
-          <Route path="/audience" element={<DashboardLayout><Audience /></DashboardLayout>} />
-          <Route path="/reports" element={<DashboardLayout><Reports /></DashboardLayout>} />
-          <Route path="/plan" element={<DashboardLayout><Plan /></DashboardLayout>} />
-          <Route path="/integrations" element={<DashboardLayout><Integrations /></DashboardLayout>} />
+          {/* Public Routes */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+
+          {/* Protected Routes */}
+          <Route path="/" element={<ProtectedRoute><DashboardLayout><Dashboard /></DashboardLayout></ProtectedRoute>} />
+          <Route path="/connections" element={<ProtectedRoute><DashboardLayout><Connections /></DashboardLayout></ProtectedRoute>} />
+          <Route path="/campaigns" element={<ProtectedRoute><DashboardLayout><Campaigns /></DashboardLayout></ProtectedRoute>} />
+          <Route path="/audience" element={<ProtectedRoute><DashboardLayout><Audience /></DashboardLayout></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><DashboardLayout><Reports /></DashboardLayout></ProtectedRoute>} />
+          <Route path="/plan" element={<ProtectedRoute><DashboardLayout><Plan /></DashboardLayout></ProtectedRoute>} />
+          <Route path="/integrations" element={<ProtectedRoute><DashboardLayout><Integrations /></DashboardLayout></ProtectedRoute>} />
+          
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

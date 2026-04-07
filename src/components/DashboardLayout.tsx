@@ -9,14 +9,14 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-16 flex items-center justify-between border-b border-border/30 px-6 bg-background/60 backdrop-blur-xl sticky top-0 z-30">
-            <div className="flex items-center gap-4">
-              <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors" />
+          <header className="h-16 flex items-center justify-between border-b border-border/30 px-4 md:px-6 bg-background/60 backdrop-blur-xl sticky top-0 z-30">
+            <div className="flex items-center gap-2 md:gap-4">
+              <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors h-10 w-10" />
               <div className="relative hidden md:block">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Buscar campanhas, contatos..."
-                  className="pl-9 w-72 h-9 bg-secondary/40 border-border/40 text-sm placeholder:text-muted-foreground/50 focus:bg-secondary/60 transition-colors"
+                  className="pl-9 w-72 h-10 bg-secondary/40 border-border/40 text-sm placeholder:text-muted-foreground/50 focus:bg-secondary/60 transition-colors"
                 />
               </div>
             </div>

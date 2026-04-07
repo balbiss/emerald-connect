@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Emerald Worker & Proxy (Integration Supabase <-> Pastorini API)
+  emerald-service:
+    build: ./vps-backend
+    container_name: emerald-vps-backend
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      - SUPABASE_URL=SUA_URL_AQUI
+      - SUPABASE_SERVICE_KEY=SUA_SERVICE_KEY_AQUI
+      - VPS_API_URL=http://api:3000  # Comunicação interna via rede docker
+      - VPS_API_KEY=280896Ab@
+      - REDIS_URL=redis://redis:6379
+    networks:
+      - pastorini-net
+    depends_on:
+      - api
+      - redis
+
+  # Pastorini API - Sua Instância Atual (Configurada conforme Documentação)
+  api:
+    image: SEU_USUARIO/pastorini-api:latest
+    container_name: pastorini-api
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - PANEL_API_KEY=280896Ab@
+      - STORAGE_TYPE=postgres+redis
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=pastorini_api
+      - POSTGRES_USER=pastorini
+      - POSTGRES_PASSWORD=SUA_SENHA_SEGURA
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LICENSE_KEY=SUA_CHAVE_LICENCA
+    networks:
+      - pastorini-net
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "3000:3000"
+
+  # Redis - Cache e Filas
+  redis:
+    image: redis:7-alpine
+    container_name: pastorini-redis
+    command: redis-server --appendonly yes
+    networks:
+      - pastorini-net
+    volumes:
+      - redis_data:/data
+
+  # PostgreSQL - Banco de Dados da API
+  postgres:
+    image: postgres:15-alpine
+    container_name: pastorini-db
+    environment:
+      POSTGRES_DB: pastorini_api
+      POSTGRES_USER: pastorini
+      POSTGRES_PASSWORD: SUA_SENHA_SEGURA
+    networks:
+      - pastorini-net
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+networks:
+  pastorini-net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

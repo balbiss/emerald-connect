@@ -1,8 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 @layer base {
   :root {
@@ -66,10 +66,27 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased selection:bg-emerald/30 selection:text-emerald-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    @apply leading-relaxed text-sm lg:text-base;
+  }
+
+  h1 {
+    @apply text-2xl lg:text-3xl font-bold tracking-tight text-foreground mb-1;
+  }
+
+  h2 {
+    @apply text-xl lg:text-2xl font-bold tracking-tight text-foreground mb-1;
+  }
+
+  h3 {
+    @apply text-lg font-semibold text-foreground mb-1;
+  }
+
+  p {
+    @apply text-sm text-muted-foreground leading-relaxed;
   }
 
   ::-webkit-scrollbar {
@@ -253,5 +270,24 @@
   }
   .table-row-hover:hover {
     background: hsl(220 16% 10% / 0.5);
+  }
+
+  .enterprise-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(220 16% 18%) transparent;
+  }
+  
+  .enterprise-scroll::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  
+  .enterprise-scroll::-webkit-scrollbar-thumb {
+    background: hsl(220 16% 22%);
+    border-radius: 10px;
+  }
+
+  .enterprise-scroll::-webkit-scrollbar-track {
+    background: transparent;
   }
 }

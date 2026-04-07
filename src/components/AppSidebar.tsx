@@ -9,10 +9,11 @@ import {
   Zap,
   Bell,
   Settings,
+  LogOut,
   ChevronRight,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   Sidebar,
   SidebarContent,
@@ -27,6 +28,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "./ui/button";
 
 const mainNav = [
   { title: "Início", url: "/", icon: LayoutDashboard },
@@ -45,6 +47,12 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem("isLoggedIn");
+    navigate("/login");
+  };
 
   const isActive = (url: string) =>
     url === "/" ? location.pathname === "/" : location.pathname.startsWith(url);
@@ -87,7 +95,7 @@ export function AppSidebar() {
           {!collapsed && (
             <div>
               <span className="text-base font-bold text-foreground tracking-tight">
-                ZapFlow
+                IA Disparo
               </span>
               <span className="text-[10px] text-primary font-semibold ml-1.5 bg-primary/10 px-1.5 py-0.5 rounded">
                 PRO
@@ -127,7 +135,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="px-3 pb-4">
+      <SidebarFooter className="px-4 pb-4 space-y-4">
         {!collapsed && (
           <div className="glass-card-highlight p-3.5">
             <div className="flex items-center justify-between mb-2">
@@ -140,6 +148,18 @@ export function AppSidebar() {
             <p className="text-[10px] text-muted-foreground mt-1.5">1 de 3 instâncias</p>
           </div>
         )}
+        
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton 
+              onClick={handleLogout}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-all duration-200 ${collapsed ? "justify-center" : ""}`}
+            >
+              <LogOut className="h-[18px] w-[18px] flex-shrink-0" />
+              {!collapsed && <span className="text-[13px] font-medium tracking-wide">Sair do Sistema</span>}
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
       </SidebarFooter>
     </Sidebar>
   );
