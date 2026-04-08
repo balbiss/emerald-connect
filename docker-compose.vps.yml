@@ -20,6 +20,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
+        - "traefik.docker.network=inoovaweb"
         - "traefik.http.routers.ia-disparo-api.rule=Host('api-iadisparo.inoovaweb.cloud')"
         - "traefik.http.routers.ia-disparo-api.entrypoints=websecure"
         - "traefik.http.routers.ia-disparo-api.tls.certresolver=myresolver"
@@ -47,6 +48,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
+        - "traefik.docker.network=inoovaweb"
         - "traefik.http.routers.ia-disparo-front.rule=Host('iadisparo.inoovaweb.cloud')"
         - "traefik.http.routers.ia-disparo-front.entrypoints=websecure"
         - "traefik.http.routers.ia-disparo-front.tls.certresolver=myresolver"
