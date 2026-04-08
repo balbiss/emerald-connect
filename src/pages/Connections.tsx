@@ -38,8 +38,45 @@ export default function Connections() {
   const [newName, setNewName] = useState("");
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [activeInstanceId, setActiveInstanceId] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const PROXY_URL = "/api-proxy";
+
+  // Polling para checar status da instância caso o QR Code esteja na tela.
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+
+    if (qrCode && activeInstanceId) {
+      interval = setInterval(async () => {
+        try {
+          const { data } = await axios.get(`${PROXY_URL}/instances/${activeInstanceId}/status`);
+          const state = data?.state || data?.instance?.state || data?.instance?.status || data?.status;
+          
+          if (["open", "CONNECTED", "connected"].includes(state)) {
+             // Pareamento concluído, salva no DB para refletir na tela
+             const { data: userData } = await supabase.auth.getUser();
+             if (userData.user) {
+                await supabase.from("whatsapp_instances")
+                  .update({ status: 'CONNECTED' })
+                  .eq('instance_id_api', activeInstanceId)
+                  .eq('user_id', userData.user.id);
+             }
+             
+             toast.success("WhatsApp Conectado com sucesso!");
+             setQrCode(null);
+             setActiveInstanceId(null);
+             setIsCreating(false);
+             setIsModalOpen(false); // Fecha o dialog automaticamente!
+             refresh(); 
+          }
+        } catch (error) {
+          // Ignora falhas de status ping silencioso
+        }
+      }, 3500);
+    }
+
+    return () => clearInterval(interval);
+  }, [qrCode, activeInstanceId, refresh]);
 
   const handleCreateInstance = async () => {
     if (!newName) {
@@ -130,7 +167,7 @@ export default function Connections() {
         </div>
 
         {!reachedLimit ? (
-          <Dialog>
+          <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
             <DialogTrigger asChild>
               <Button className="gradient-emerald gap-2 text-primary-foreground font-semibold h-10 px-5 transition-all hover:scale-105">
                 <Plus className="h-4 w-4" /> Adicionar Número
