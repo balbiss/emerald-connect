@@ -39,61 +39,100 @@ export default function Connections() {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [activeInstanceId, setActiveInstanceId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [debugLog, setDebugLog] = useState<string>("Pronto para conectar...");
 
   const PROXY_URL = "/api-proxy";
 
-  // Polling para checar status da instância caso o QR Code esteja na tela.
+  // Polling Master: Busca QR Code -> Se Tiver QR Code -> Busca Status
   useEffect(() => {
-    let interval: ReturnType<typeof setInterval>;
+    let timeoutId: ReturnType<typeof setTimeout>;
+    let isMounted = true;
 
-    if (qrCode && activeInstanceId) {
-      interval = setInterval(async () => {
-        try {
-          const { data } = await axios.get(`${PROXY_URL}/instances/${activeInstanceId}/status`);
-          const state = data?.state || data?.instance?.state || data?.instance?.status || data?.status;
-          
-          if (["open", "CONNECTED", "connected"].includes(state)) {
-             // Pareamento concluído, salva no DB para refletir na tela
-             const { data: userData } = await supabase.auth.getUser();
-             if (userData.user) {
-                await supabase.from("whatsapp_instances")
-                  .update({ status: 'CONNECTED' })
-                  .eq('instance_id_api', activeInstanceId)
-                  .eq('user_id', userData.user.id);
-             }
-             
-             toast.success("WhatsApp Conectado com sucesso!");
-             setQrCode(null);
-             setActiveInstanceId(null);
-             setIsCreating(false);
-             setIsModalOpen(false); // Fecha o dialog automaticamente!
-             refresh(); 
+    const runPolling = async () => {
+      if (!activeInstanceId || !isMounted) return;
+
+      try {
+        // FASE 1: Se ainda não temos a foto do QR CODE, devemos consultar o endpoint /qr
+        if (!qrCode) {
+          setDebugLog(`Aguardando API gerar o QR Code (+/- 5 segs)...`);
+          try {
+            const qrResponse = await axios.get(`${PROXY_URL}/instances/${activeInstanceId}/qr`, { timeout: 8000 });
+            if (qrResponse.data?.qrImage) {
+              setQrCode(qrResponse.data.qrImage);
+              toast.success("Instância iniciada! Escaneie o código.");
+              setDebugLog("QR Code pronto. Aguardando a Camera do celular...");
+            }
+          } catch (qrError) {
+             // 400 normal se Whatsapp Session ainda estiver botando os sockets de pé na API.
+             setDebugLog(`API Preparando Sessão do WhatsApp...`);
           }
-        } catch (error) {
-          // Ignora falhas de status ping silencioso
+        } 
+        // FASE 2: Já temos o QR Code visível, vamos monitorar o STATUS de Conexão.
+        else {
+          setDebugLog(`Consultando Pareamento no WhatsApp...`);
+          try {
+            const statusResponse = await axios.get(`${PROXY_URL}/instances/${activeInstanceId}/status`, { timeout: 8000 });
+            const state = statusResponse.data?.state || statusResponse.data?.instance?.state || statusResponse.data?.instance?.status || statusResponse.data?.status;
+            
+            setDebugLog(`Resposta da Antena: ${String(state)} | ID: ${activeInstanceId}`);
+            
+            if (["open", "CONNECTED", "connected"].includes(state)) {
+               // Pareamento concluído, salva no DB
+               const { data: userData } = await supabase.auth.getUser();
+               if (userData.user) {
+                  await supabase.from("whatsapp_instances")
+                    .update({ status: 'CONNECTED' })
+                    .eq('instance_id_api', activeInstanceId)
+                    .eq('user_id', userData.user.id);
+               }
+               
+               toast.success("WhatsApp Conectado com sucesso!");
+               setQrCode(null);
+               setActiveInstanceId(null);
+               setIsCreating(false);
+               setIsModalOpen(false); // Fecha dialog
+               refresh();
+               setDebugLog("Pronto para conectar...");
+               return; // Fim do Loop do Poller
+            }
+          } catch (statusError: any) {
+            setDebugLog(`Ping Falhou: ${statusError.message}`);
+          }
         }
-      }, 3500);
+      } catch (err) {}
+
+      // Repete o ciclo do Poller se a janela e ID estiverem ativos a cada 2.5s
+      timeoutId = setTimeout(runPolling, 2500);
+    };
+
+    // Auto-Run
+    if (activeInstanceId) {
+      runPolling();
     }
 
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [qrCode, activeInstanceId, refresh]);
 
   const handleCreateInstance = async () => {
     if (!newName) {
-      toast.error("Por favor, informe um nome para a instância");
+      toast.error("Por favor, informe um nome");
       return;
     }
 
     setIsCreating(true);
-    setQrCode(null);
+    setQrCode(null); // Zera
+    setDebugLog("Iniciando Transação Database...");
     
-    // Gerar um ID amigável baseado no nome + timestamp
+    // ID da Instância Papi-Bound
     const instanceIdApi = `${newName.toLowerCase().replace(/\s+/g, '-')}-${Date.now().toString().slice(-4)}`;
-    setActiveInstanceId(instanceIdApi);
-
+    
     try {
       const { data: userData } = await supabase.auth.getUser();
-      // 1. Validar e Salvar no Supabase PRIMEIRO (Evita criar zumbis na VPS se barrar erro P0001 plano)
+      
+      // 1. Validar e Salvar no Supabase PRIMEIRO (Anti-Zumbi)
       const { error: dbError } = await supabase.from("whatsapp_instances").insert([{
         instance_id_api: instanceIdApi,
         name: newName,
@@ -103,32 +142,29 @@ export default function Connections() {
 
       if (dbError) throw dbError;
 
-      // 2. Criar na VPS via Proxy
+      // 2. Criar Instância na VPS (POST /instances)
+      setDebugLog("Registrando na Nuvem (PAPI)...");
       try {
           const { data: createData } = await axios.post(`${PROXY_URL}/instances`, {
             id: instanceIdApi
           });
 
+          // 3. Sucesso Criação! Delegar o Poller para caçar o QR Code
           if (createData.id) {
-            // 3. Buscar QR Code
-            const { data: qrData } = await axios.get(`${PROXY_URL}/instances/${instanceIdApi}/qr`);
-            if (qrData.qrImage) {
-              setQrCode(qrData.qrImage);
-              toast.success("Instância iniciada! Escaneie o QR Code.");
-            }
+             setActiveInstanceId(instanceIdApi); // Liga o Radar!
+             setIsCreating(false); // Apaga roda girando
           }
       } catch (apiError: any) {
-          // Rollback preventivo caso VPS caia durante
+          // Fallback Database Clean
           await supabase.from("whatsapp_instances").delete().eq('instance_id_api', instanceIdApi);
           throw apiError;
       }
     } catch (error: any) {
-      console.error("Erro ao criar instância:", error);
-      // Extrai mensagem específica de erro do banco ou API
-      const errorMessage = error.message || error.response?.data?.error || "Erro ao comunicar com os servidores";
+      console.error("Criar:", error);
+      const errorMessage = error.message || error.response?.data?.error || "Erro de nuvem.";
       toast.error(errorMessage);
-    } finally {
       setIsCreating(false);
+      setDebugLog("Pronto para conectar...");
     }
   };
 
@@ -208,12 +244,26 @@ export default function Connections() {
                     </div>
                   ) : qrCode ? (
                     <img src={qrCode} alt="WhatsApp QR Code" className="w-full h-full object-contain p-4 animate-in fade-in zoom-in duration-500" />
+                  ) : activeInstanceId ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                      <p className="text-[10px] font-bold text-muted-foreground animate-pulse text-center px-4">
+                        Aguardando a API levantar a sessão WhatsApp na nuvem para exibir o QR Code...
+                      </p>
+                    </div>
                   ) : (
                     <QrCode className="h-28 w-28 text-muted-foreground/40 group-hover:text-primary/40 transition-colors" />
                   )}
                 </div>
 
-                {!qrCode && !isCreating && (
+                {(qrCode || activeInstanceId || isCreating) && (
+                   <div className="w-full px-4 py-2 mt-2 bg-black/40 border border-primary/20 rounded-md font-mono text-[10px] text-green-400 overflow-hidden text-center whitespace-nowrap text-ellipsis transition-all">
+                     <span className="opacity-70 mr-2">LOG:</span>
+                     {debugLog}
+                   </div>
+                )}
+
+                {!qrCode && !isCreating && !activeInstanceId && (
                    <Button 
                     className="w-full h-12 gradient-emerald text-primary-foreground font-bold shadow-lg shadow-emerald-500/20"
                     onClick={handleCreateInstance}
