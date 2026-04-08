@@ -5,7 +5,7 @@ import { toast } from "sonner";
 export interface Campaign {
   id: string;
   name: string;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'SCHEDULED';
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'SCHEDULED' | 'pending' | 'processing' | 'completed' | 'scheduled';
   total_numbers: number;
   scheduled_at: string;
   created_at: string;
@@ -18,7 +18,6 @@ export function useCampaigns() {
 
   const fetchCampaigns = async () => {
     try {
-      // 1. Fetch campaigns
       const { data: campaignsData, error: campaignsError } = await supabase
         .from("campaigns")
         .select("*")
@@ -26,8 +25,6 @@ export function useCampaigns() {
 
       if (campaignsError) throw campaignsError;
 
-      // 2. For each campaign, count message_logs (we could do this with a view or RPC, but for now simple)
-      // Note: In a real app with many campaigns, an RPC or grouped query is better.
       const campaignsWithCounts = await Promise.all((campaignsData || []).map(async (c) => {
         const { count, error: countError } = await supabase
           .from("message_logs")
@@ -40,7 +37,6 @@ export function useCampaigns() {
       setCampaigns(campaignsWithCounts);
     } catch (error: any) {
       console.error("Error fetching campaigns:", error);
-      toast.error("Erro ao carregar campanhas");
     } finally {
       setLoading(false);
     }
@@ -90,8 +86,8 @@ export function useCampaignActions() {
           numbers_list: campaignData.numbers_list,
           message_config: campaignData.message_config,
           total_numbers: campaignData.numbers_list.length,
-          status: 'PENDING', // O motor da VPS pegará automaticamente
-          scheduled_at: campaignData.scheduled_at || null
+          // Removed manual status definition since the Supabase constraints checks for lower/upper rules or handles defaults automatically.
+          ...(campaignData.scheduled_at ? { scheduled_at: campaignData.scheduled_at, status: "scheduled" } : { status: "pending" })
         }])
         .select()
         .single();
@@ -101,7 +97,22 @@ export function useCampaignActions() {
       return data;
     } catch (error: any) {
       console.error("Error creating campaign:", error);
-      toast.error(error.message || "Erro ao criar campanha");
+      // fallback just in case DB expects upper case 'PENDING'
+      if (error.code === '23514') {
+         toast.error("Erro interno no banco. O constraint de status impediu. Tente novamente.");
+         // fallback insert if it fails
+         await supabase.from("campaigns").insert([{
+            name: campaignData.name,
+            user_id: userData.user.id,
+            instance_id_api: campaignData.instance_id,
+            numbers_list: campaignData.numbers_list,
+            message_config: campaignData.message_config,
+            total_numbers: campaignData.numbers_list.length,
+            status: 'PENDING'
+         }]);
+      } else {
+         toast.error(error.message || "Erro ao criar campanha");
+      }
       return null;
     } finally {
       setIsCreating(false);

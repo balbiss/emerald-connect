@@ -41,8 +41,11 @@ export default function Campaigns() {
   // Form State
   const [name, setName] = useState("");
   const [listType, setListType] = useState("all");
+  const [manualContacts, setManualContacts] = useState(""); // Novo
   const [instanceId, setInstanceId] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
+  const [delayMin, setDelayMin] = useState(15); // Novo
+  const [delayMax, setDelayMax] = useState(45); // Novo
   
   const [messageConfig, setMessageConfig] = useState<MessagePayload | null>(null);
 
@@ -58,19 +61,36 @@ export default function Campaigns() {
     if (!instanceId) return toast.error("Selecione uma instância para o disparo");
     if (!messageConfig) return toast.error("Nenhuma mensagem configurada");
 
-    // Lógica boba para mockar números (no futuro pegaria do DB baseado na segmentação)
-    // Vamos simular disparando para contatos que já interagiram + o que houver
-    const mockNumbers = logs.slice(0, 10).map(l => l.remote_jid).filter(Boolean);
-    if (mockNumbers.length === 0) {
-      // Fake number se o BD estiver vazio
-      mockNumbers.push("5511999999999@s.whatsapp.net");
+    // Construção da lista de números
+    let finalNumbers: string[] = [];
+    if (listType === "manual") {
+      if (!manualContacts.trim()) return toast.error("Você selecionou Lista Manual. Cole os contatos!");
+      // Extrair apenas dígitos, limpar vazios e formatar
+      finalNumbers = manualContacts.split(/[\n,;]+/)
+        .map(n => n.replace(/\D/g, ''))
+        .filter(n => n.length >= 10 && n.length <= 15)
+        .map(n => n.includes('@s.whatsapp.net') ? n : `${n}@s.whatsapp.net`);
+        
+      if (finalNumbers.length === 0) return toast.error("Nenhum número válido encontrado. Formato Ex: 5511999999999");
+    } else {
+      // Pega contatos do BD
+      finalNumbers = Array.from(new Set(logs.map(l => l.remote_jid).filter(Boolean)));
     }
+    
+    // Injeta as configurações de delay no payload pro backend processar
+    const enhancedMessageConfig = {
+       ...messageConfig,
+       options: {
+         delayMin: Number(delayMin),
+         delayMax: Number(delayMax)
+       }
+    };
 
     const result = await createCampaign({
       name,
       instance_id: instanceId,
-      numbers_list: mockNumbers,
-      message_config: messageConfig,
+      numbers_list: finalNumbers,
+      message_config: enhancedMessageConfig,
       scheduled_at: scheduledAt || undefined
     });
 
@@ -78,6 +98,8 @@ export default function Campaigns() {
        setStep("config");
        setName("");
        setScheduledAt("");
+       setManualContacts("");
+       setListType("all");
     }
   };
 
@@ -155,6 +177,7 @@ export default function Campaigns() {
                 <SelectItem value="all">Base Geral ({uniqueContactsCount} contatos)</SelectItem>
                 <SelectItem value="leads">Leads Novos</SelectItem>
                 <SelectItem value="vip">Clientes Recorrentes (VIP)</SelectItem>
+                <SelectItem value="manual" className="font-bold text-amber-500 hover:text-amber-600">Lista Manual (Colar/TXT)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -187,6 +210,41 @@ export default function Campaigns() {
               />
             </div>
           </div>
+        </div>
+
+        {/* Bloco de Opções Avançadas e Lista Manual dependendo do estado */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+           {listType === "manual" && (
+             <div className="animate-fade-in border border-amber-500/20 bg-amber-500/5 rounded-xl p-4">
+                <label className="text-[10px] uppercase tracking-widest text-amber-500 font-bold mb-2.5 flex items-center justify-between">
+                   <span>Colar Lista de Números</span>
+                   <span className="text-secondary-foreground/50 text-[9px]">Apenas DDI+DDD+NÚMERO, cada um em uma linha ou separados por vírgula.</span>
+                </label>
+                <textarea
+                   value={manualContacts}
+                   onChange={e => setManualContacts(e.target.value)}
+                   className="w-full bg-background/50 border border-border/40 rounded-lg p-3 text-xs font-mono min-h-[100px] max-h-[200px] resize-y placeholder:text-muted-foreground/30 focus-visible:ring-amber-500/30 outline-none"
+                   placeholder="Ex:&#10;5511999999999&#10;5511988888888&#10;..."
+                />
+             </div>
+           )}
+
+           <div className={`animate-fade-in border border-border/20 bg-secondary/10 rounded-xl p-4 flex flex-col justify-center ${listType !== 'manual' ? 'lg:col-span-2' : ''}`}>
+              <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-4 block">Proteção Anti-Ban: Delay de Envio</label>
+              <div className="flex items-center gap-6">
+                 <div className="flex-1">
+                   <span className="text-xs font-semibold mb-1 block">Tempo Mínimo (seg)</span>
+                   <Input type="number" min={5} value={delayMin} onChange={e => setDelayMin(Number(e.target.value))} className="bg-background/80" />
+                 </div>
+                 <div className="flex-1">
+                   <span className="text-xs font-semibold mb-1 block">Tempo Máximo (seg)</span>
+                   <Input type="number" min={delayMin + 1} value={delayMax} onChange={e => setDelayMax(Number(e.target.value))} className="bg-background/80" />
+                 </div>
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-3 italic">
+                 A API sorteará aleatoriamente um valor entre {delayMin} e {delayMax} segundos para cada mensagem enviada, emulando envio humano natural.
+              </p>
+           </div>
         </div>
         <div className="flex justify-end">
           <Button 
