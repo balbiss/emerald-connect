@@ -31,6 +31,94 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { useInstances } from "@/hooks/useInstances";
 import { supabase } from "@/lib/supabase";
 
+function InstanceSettingsDialog({ inst, refresh, PROXY_URL }: any) {
+  const [rejectCalls, setRejectCalls] = useState(inst.reject_calls || false);
+  const [alwaysOnline, setAlwaysOnline] = useState(inst.always_online || false);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  const handleUpdate = async () => {
+    setLoading(true);
+    try {
+      if (inst.instance_id_api) {
+        // Envia as configuacoes avacadas recomendadas p/ PAPI!
+        await axios.post(`${PROXY_URL}/instances/${inst.instance_id_api}/settings`, {
+          rejectCalls,
+          alwaysOnline,
+          ignoreNewsletters: true, 
+          readMessages: false,
+          syncFullHistory: false
+        });
+      }
+      
+      // Salva no nosso Supabase
+      const { error } = await supabase.from("whatsapp_instances").update({
+        reject_calls: rejectCalls,
+        always_online: alwaysOnline
+      }).eq("id", inst.id);
+      
+      if (error) throw error;
+      
+      toast.success("Configurações atualizadas via PAPI!");
+      refresh();
+      setOpen(false);
+    } catch (e: any) {
+      toast.error(e.message || "Erro ao conectar settings api");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Sync state if inst props changes dynamically
+  useEffect(() => {
+    setRejectCalls(inst.reject_calls || false);
+    setAlwaysOnline(inst.always_online || false);
+  }, [inst]);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-11 w-11 rounded-xl hover:bg-primary/5">
+          <Settings className="h-5 w-5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="bg-card border-border/50 max-w-md w-[95%] rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" /> Configurações Avançadas
+          </DialogTitle>
+          <DialogDescription>
+            Ajuste o comportamento técnico de <strong>{inst.name}</strong>.
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="py-4 space-y-4">
+          <div className="flex items-center justify-between p-3.5 rounded-xl bg-secondary/20 border border-border/30">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-semibold">Rejeitar Chamadas</Label>
+              <p className="text-[11px] text-muted-foreground">Bloqueia chamadas de voz/vídeo automaticamente.</p>
+            </div>
+            <Switch checked={rejectCalls} onCheckedChange={setRejectCalls} />
+          </div>
+          <div className="flex items-center justify-between p-3.5 rounded-xl bg-secondary/20 border border-border/30">
+            <div className="space-y-0.5">
+              <Label className="text-sm font-semibold">Sempre Online</Label>
+              <p className="text-[11px] text-muted-foreground">Mantém o Status online 24/7 na linha.</p>
+            </div>
+            <Switch checked={alwaysOnline} onCheckedChange={setAlwaysOnline} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button onClick={handleUpdate} disabled={loading} className="w-full gradient-emerald text-primary-foreground font-bold h-11">
+             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Atualizar Configurações"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function Connections() {
   const { instances, loading, planLimit, refresh } = useInstances();
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
@@ -341,7 +429,7 @@ export default function Connections() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-3 mt-1.5">
-                    <Badge className={
+                     <Badge className={
                       inst.status === 'CONNECTED' 
                         ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
                         : "bg-destructive/10 text-destructive border-destructive/20"
@@ -355,46 +443,7 @@ export default function Connections() {
                 </div>
               </div>
               <div className="flex items-center gap-3">
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-11 w-11 rounded-xl hover:bg-primary/5">
-                      <Settings className="h-5 w-5" />
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="bg-card border-border/50 max-w-md w-[95%] rounded-2xl">
-                    <DialogHeader>
-                      <DialogTitle className="flex items-center gap-2">
-                        <Shield className="h-5 w-5 text-primary" /> Configurações Avançadas
-                      </DialogTitle>
-                      <DialogDescription>
-                        Ajuste o comportamento técnico de <strong>{inst.name}</strong>.
-                      </DialogDescription>
-                    </DialogHeader>
-                    
-                    <div className="py-4 space-y-4">
-                      <div className="flex items-center justify-between p-3.5 rounded-xl bg-secondary/20 border border-border/30">
-                        <div className="space-y-0.5">
-                          <Label className="text-sm font-semibold">Rejeitar Chamadas</Label>
-                          <p className="text-[11px] text-muted-foreground">Bloqueia chamadas de voz/vídeo.</p>
-                        </div>
-                        <Switch checked={inst.reject_calls} />
-                      </div>
-                      <div className="flex items-center justify-between p-3.5 rounded-xl bg-secondary/20 border border-border/30">
-                        <div className="space-y-0.5">
-                          <Label className="text-sm font-semibold">Sempre Online</Label>
-                          <p className="text-[11px] text-muted-foreground">Status online 24/7.</p>
-                        </div>
-                        <Switch checked={inst.always_online} />
-                      </div>
-                    </div>
-
-                    <DialogFooter>
-                      <Button className="w-full gradient-emerald text-primary-foreground font-bold h-11">
-                        Atualizar Configurações
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <InstanceSettingsDialog inst={inst} refresh={refresh} PROXY_URL={PROXY_URL} />
 
                 <Button 
                   variant="ghost" 
