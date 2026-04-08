@@ -163,20 +163,49 @@ messageQueue.process(async (job) => {
     
     // Suporte a diferentes tipos de mensagens da PAPI v1.6 aplicando as variáveis
     if (messageData.type === 'text' && messageData.text) {
-       payload = { ...payload, ...messageData.text, text: applyVariables(messageData.text.text) };
-    } else if (messageData.type === 'carousel') {
+       payload = { ...payload, text: applyVariables(messageData.text) };
+    } else if (messageData.type === 'carousel' && messageData.carousel) {
       endpoint = '/send-carousel';
-      payload = { ...payload, ...messageData.carousel, body: applyVariables(messageData.carousel.body) };
-    } else if (messageData.type === 'poll') {
+      payload = { 
+         ...payload, 
+         cards: messageData.carousel.map(card => ({
+            ...card,
+            title: applyVariables(card.title),
+            description: applyVariables(card.description),
+            footer: applyVariables(card.footer)
+         }))
+      };
+    } else if (messageData.type === 'interactive' && messageData.poll) {
       endpoint = '/send-poll';
-      payload = { ...payload, ...messageData.poll, name: applyVariables(messageData.poll.name) };
-    } else if (messageData.type === 'buttons') {
+      payload = { 
+         ...payload, 
+         name: applyVariables(messageData.poll.question),
+         selectableOptionsCount: messageData.poll.allowMultiple ? messageData.poll.options.length : 1,
+         options: messageData.poll.options.map(o => ({ optionName: applyVariables(o.label) }))
+      };
+    } else if (messageData.type === 'buttons' && messageData.buttons) {
       endpoint = '/send-buttons';
-      payload = { ...payload, ...messageData.buttons, text: applyVariables(messageData.buttons.text) };
-    } else if (messageData.type === 'media') {
-      const mediaType = messageData.media?.type || 'image';
+      payload = { 
+         ...payload, 
+         text: applyVariables(messageData.text),
+         buttons: messageData.buttons.map((b, i) => ({
+             type: b.type === 'url' ? 'url' : b.type === 'call' ? 'call' : 'reply',
+             displayText: applyVariables(b.label),
+             id: `btn_${i}`,
+             ...(b.type === 'url' && { url: b.value }),
+             ...(b.type === 'call' && { phoneNumber: b.value })
+         }))
+      };
+    } else if (messageData.type === 'media' && messageData.media) {
+      const mediaType = messageData.media.type || 'image';
       endpoint = `/send-${mediaType}`;
-      payload = { ...payload, ...messageData.media, caption: applyVariables(messageData.media?.caption) };
+      payload = { 
+         ...payload, 
+         url: messageData.media.url,
+         caption: applyVariables(messageData.media.caption),
+         ...(mediaType === 'audio' && { ptt: messageData.media.ptt }),
+         ...(mediaType === 'document' && { fileName: messageData.media.filename })
+      };
     }
 
     const { data } = await api.post(`/api/instances/${instanceId}${endpoint}`, payload);
@@ -246,7 +275,7 @@ async function monitorCampaigns() {
       }
       
       // Limpar JID caso a validação do PAPI reclame ou usar como base limpa no Queue
-      phone = phone.replace('@s.whatsapp.net', '');
+      phone = phone.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
       
       // Lógica de delay individual para cada job na fila (randomização entre min e max)
       const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;

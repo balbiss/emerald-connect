@@ -276,7 +276,7 @@ export default function Campaigns() {
             <Clock className="h-5 w-5 text-primary" /> Histórico Operacional
           </h3>
           <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-bold tracking-wider px-3 py-1">
-            {campaigns.filter(c => c.status === 'PROCESSING').length} Em Andamento
+            {campaigns.filter(c => ["PROCESSING", "processing"].includes(c.status)).length} Em Andamento
           </Badge>
         </div>
         
@@ -288,17 +288,18 @@ export default function Campaigns() {
           ) : (
             campaigns.map((c, i) => {
               const progress = c.total_numbers > 0 ? ((c.sent_count || 0) / c.total_numbers) * 100 : 0;
-              const isProcessing = c.status === "PROCESSING" || c.status === "PENDING";
+              const isProcessing = ["PENDING", "PROCESSING", "pending", "processing"].includes(c.status);
+              const isCompleted = c.status === "COMPLETED" || c.status === "completed";
               
               return (
-                <div key={c.id} className="glass-card p-5 group hover:border-emerald-500/30 transition-all duration-300">
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-5">
+                <div key={c.id} className="bg-secondary/30 rounded-2xl p-6 border border-border/40 hover:border-border transition-colors animate-fade-in group">
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
                       <div className={`h-12 w-12 rounded-2xl flex items-center justify-center shadow-inner ${
-                        isProcessing ? "bg-primary/10" : c.status === "COMPLETED" ? "bg-info/10" : "bg-warning/10"
+                        isProcessing ? "bg-primary/10" : isCompleted ? "bg-info/10" : "bg-warning/10"
                       }`}>
                         {isProcessing ? <Send className="h-5 w-5 text-primary animate-pulse" /> :
-                         c.status === "COMPLETED" ? <CheckCircle2 className="h-5 w-5 text-info" /> :
+                         isCompleted ? <CheckCircle2 className="h-5 w-5 text-info" /> : 
                          <Clock className="h-5 w-5 text-warning" />}
                       </div>
                       <div className="min-w-0">
