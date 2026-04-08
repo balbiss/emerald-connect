@@ -1,34 +1,61 @@
 version: '3.8'
 
 services:
-  # IA Disparo Worker & Proxy (Integration Supabase <-> Pastorini API)
-  ia-disparo-service:
-    build: ./vps-backend
-    container_name: ia-disparo-backend
-    restart: always
-    environment:
-      - SUPABASE_URL=https://odkoigujqlxudhzriusv.supabase.co
-      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ka29pZ3VqcWx4dWRoenJpdXN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Nzg3MDYsImV4cCI6MjA5MDE1NDcwNn0.dnVnzzcn1TYxlN3XKjluvvaGEGmAhVUjKqfkSAZeYh8
-      - VPS_API_URL=https://zap.inoovaweb.com.br  # Usando a API que já está rodando
-      - VPS_API_KEY=280896Ab@
-      - REDIS_URL=redis://redis:6379  # Se o worker precisar de um redis local para sua própria fila
+  redis:
+    image: redis:alpine
+    deploy:
+      restart_policy:
+        condition: any
+    volumes:
+      - redis_data:/data
     networks:
       - inoovaweb
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.ia-disparo.rule=Host(`iadisparo.inoovaweb.cloud`)"
-      - "traefik.http.routers.ia-disparo.entrypoints=websecure"
-      - "traefik.http.routers.ia-disparo.tls=true"
-      - "traefik.http.routers.ia-disparo.tls.certresolver=letsencrypt"
-      - "traefik.http.services.ia-disparo.loadbalancer.server.port=4000"
 
-  # Redis local para a fila do Worker (Bull Queue)
-  redis:
-    image: redis:7-alpine
-    container_name: ia-disparo-redis
+  ia-disparo-service:
+    image: emerald-connect-ia-disparo-service:latest
+    build: 
+      context: ./vps-backend
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.ia-disparo-api.rule=Host('api-disparo.inoovaweb.cloud')"
+        - "traefik.http.routers.ia-disparo-api.entrypoints=websecure"
+        - "traefik.http.routers.ia-disparo-api.tls.certresolver=myresolver"
+        - "traefik.http.services.ia-disparo-api.loadbalancer.server.port=4000"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - VPS_API_URL=${VPS_API_URL}
+      - VPS_API_KEY=${VPS_API_KEY}
+      - REDIS_URL=redis://redis:6379
+      - PORT=4000
+    depends_on:
+      - redis
+    networks:
+      - inoovaweb
+
+  ia-disparo-frontend:
+    image: emerald-connect-ia-disparo-frontend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.ia-disparo-front.rule=Host('iadisparo.inoovaweb.cloud')"
+        - "traefik.http.routers.ia-disparo-front.entrypoints=websecure"
+        - "traefik.http.routers.ia-disparo-front.tls.certresolver=myresolver"
+        - "traefik.http.services.ia-disparo-front.loadbalancer.server.port=80"
     networks:
       - inoovaweb
 
 networks:
   inoovaweb:
     external: true
+
+volumes:
+  redis_data:

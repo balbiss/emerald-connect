@@ -93,32 +93,49 @@ app.delete('/api-proxy/instances/:id', async (req, res) => {
 
 // Processador da fila
 messageQueue.process(async (job) => {
-  const { campaignId, userId, instanceId, number, messageData } = job.data;
+  const { campaignId, userId, instanceId, number, messageData, delay } = job.data;
   
   try {
-    // Escolher endpoint baseado no tipo de mensagem
+    // 1. Aguardar delay se configurado (Randomização/Delay entre mensagens)
+    if (delay > 0) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+
+    // 2. Escolher endpoint e payload baseado na Pastorini API v1.6
     let endpoint = '/send-text';
-    let payload = { jid: `${number}@s.whatsapp.net`, text: messageData.text };
+    let payload = { jid: `${number}@s.whatsapp.net`, ...messageData.text };
     
+    // Suporte a diferentes tipos de mensagens da PAPI v1.6
     if (messageData.type === 'carousel') {
       endpoint = '/send-carousel';
       payload = { jid: `${number}@s.whatsapp.net`, ...messageData.carousel };
     } else if (messageData.type === 'poll') {
       endpoint = '/send-poll';
       payload = { jid: `${number}@s.whatsapp.net`, ...messageData.poll };
+    } else if (messageData.type === 'buttons') {
+      endpoint = '/send-buttons';
+      payload = { jid: `${number}@s.whatsapp.net`, ...messageData.buttons };
+    } else if (messageData.type === 'media') {
+      // Ajuste para send-image, send-video, etc se necessário
+      const mediaType = messageData.media?.type || 'image';
+      endpoint = `/send-${mediaType}`;
+      payload = { jid: `${number}@s.whatsapp.net`, ...messageData.media };
     }
 
     const { data } = await api.post(`/api/instances/${instanceId}${endpoint}`, payload);
     
     if (data.success) {
-      // Gravar log no Supabase
+      // Gravar log de sucesso
       await supabase.from('message_logs').insert([{
         user_id: userId,
         campaign_id: campaignId,
-        remote_jid: data.remoteJid,
+        remote_jid: data.remoteJid || `${number}@s.whatsapp.net`,
         message_id_api: data.messageId,
         status: 'SENT'
       }]);
+
+      // IMPORTANTE: Incrementar o contador de envios na campanha para a barra de progresso do frontend
+      await supabase.rpc('increment_campaign_sent_count', { campaign_id: campaignId });
     }
     
     return data;
@@ -139,44 +156,47 @@ messageQueue.process(async (job) => {
 
 // Monitor de Campanhas (Vigilante)
 async function monitorCampaigns() {
-  console.log('Vigilante: Monitorando campanhas pending...');
-  
   const { data: campaigns, error } = await supabase
     .from('campaigns')
     .select('*')
     .eq('status', 'PENDING');
     
-  if (error) {
-     console.error('Erro ao buscar campanhas:', error);
-     return;
-  }
+  if (error || !campaigns?.length) return;
 
   for (const campaign of campaigns) {
-    console.log(`Iniciando Campanha: ${campaign.name}`);
+    console.log(`🚀 Iniciando Campanha: ${campaign.name} (${campaign.numbers_list?.length} números)`);
     
     // 1. Marcar como PROCESSING
     await supabase.from('campaigns').update({ status: 'PROCESSING' }).eq('id', campaign.id);
     
-    // 2. Fragmentar números (Neste exemplo simplificado, assumimos que numbers é um array no JSONB ou string separada por vírgula)
-    const numbers = campaign.numbers_list || []; // Ajustado conforme seu schema real se houver
+    const numbers = campaign.numbers_list || [];
+    const config = campaign.message_config || {};
     
-    // Se não tiver lista, pegamos do audience proxy (opcional)
-    if (numbers.length === 0) {
-        // Lógica para carregar contatos da lista se houver
-    }
+    // Configurações de delay (padronizadas ou customizadas)
+    const minDelay = config.minDelay || 2000;
+    const maxDelay = config.maxDelay || 5000;
 
-    for (const num of numbers) {
+    for (let i = 0; i < numbers.length; i++) {
+      const num = numbers[i];
+      
+      // Lógica de delay individual para cada job na fila (randomização entre min e max)
+      const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+      
       messageQueue.add({
         campaignId: campaign.id,
         userId: campaign.user_id,
-        instanceId: campaign.instance_id_api, // ID da instância na VPS
+        instanceId: campaign.instance_id_api,
         number: num,
-        messageData: campaign.message_config // Configuração exportada do MessageBuilder
+        messageData: config,
+        delay: i === 0 ? 0 : randomDelay // Primeira mensagem sai na hora, as outras com delay
       }, {
         attempts: 3,
-        backoff: 5000
+        backoff: 10000,
+        removeOnComplete: true
       });
     }
+
+    console.log(`✅ Campanha ${campaign.name} enviada para a fila do Bull.`);
   }
 }
 

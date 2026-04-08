@@ -65,3 +65,48 @@ export function useCampaigns() {
 
   return { campaigns, loading, refresh: fetchCampaigns };
 }
+
+export function useCampaignActions() {
+  const [isCreating, setIsCreating] = useState(false);
+
+  const createCampaign = async (campaignData: {
+    name: string;
+    instance_id: string;
+    numbers_list: string[];
+    message_config: any;
+    scheduled_at?: string;
+  }) => {
+    setIsCreating(true);
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      if (!userData.user) throw new Error("Usuário não autenticado");
+
+      const { data, error } = await supabase
+        .from("campaigns")
+        .insert([{
+          name: campaignData.name,
+          user_id: userData.user.id,
+          instance_id_api: campaignData.instance_id,
+          numbers_list: campaignData.numbers_list,
+          message_config: campaignData.message_config,
+          total_numbers: campaignData.numbers_list.length,
+          status: 'PENDING', // O motor da VPS pegará automaticamente
+          scheduled_at: campaignData.scheduled_at || null
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+      toast.success("Campanha criada e enviada para a fila!");
+      return data;
+    } catch (error: any) {
+      console.error("Error creating campaign:", error);
+      toast.error(error.message || "Erro ao criar campanha");
+      return null;
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  return { createCampaign, isCreating };
+}
