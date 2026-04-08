@@ -37,6 +37,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - VITE_SUPABASE_URL=https://odkoigujqlxudhzriusv.supabase.co
+        - VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ka29pZ3VqcWx4dWRoenJpdXN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Nzg3MDYsImV4cCI6MjA5MDE1NDcwNn0.dnVnzzcn1TYxlN3XKjluvvaGEGmAhVUjKqfkSAZeYh8
     deploy:
       restart_policy:
         condition: any
