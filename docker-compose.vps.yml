@@ -24,8 +24,6 @@ services:
         - "traefik.http.routers.ia-disparo-api.entrypoints=websecure"
         - "traefik.http.routers.ia-disparo-api.tls.certresolver=myresolver"
         - "traefik.http.services.ia-disparo-api.loadbalancer.server.port=4000"
-    env_file:
-      - .env
     environment:
       - REDIS_URL=redis://redis:6379
       - PORT=4000
