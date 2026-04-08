@@ -92,32 +92,41 @@ export default function Connections() {
     setActiveInstanceId(instanceIdApi);
 
     try {
-      // 1. Criar na VPS via Proxy
-      const { data: createData } = await axios.post(`${PROXY_URL}/instances`, {
-        id: instanceIdApi
-      });
+      const { data: userData } = await supabase.auth.getUser();
+      // 1. Validar e Salvar no Supabase PRIMEIRO (Evita criar zumbis na VPS se barrar erro P0001 plano)
+      const { error: dbError } = await supabase.from("whatsapp_instances").insert([{
+        instance_id_api: instanceIdApi,
+        name: newName,
+        status: 'CONNECTING',
+        user_id: userData.user?.id
+      }]);
 
-      if (createData.id) {
-        // 2. Salvar no Supabase
-        const { error: dbError } = await supabase.from("whatsapp_instances").insert([{
-          instance_id_api: instanceIdApi,
-          name: newName,
-          status: 'CONNECTING',
-          user_id: (await supabase.auth.getUser()).data.user?.id
-        }]);
+      if (dbError) throw dbError;
 
-        if (dbError) throw dbError;
+      // 2. Criar na VPS via Proxy
+      try {
+          const { data: createData } = await axios.post(`${PROXY_URL}/instances`, {
+            id: instanceIdApi
+          });
 
-        // 3. Buscar QR Code
-        const { data: qrData } = await axios.get(`${PROXY_URL}/instances/${instanceIdApi}/qr`);
-        if (qrData.qrImage) {
-          setQrCode(qrData.qrImage);
-          toast.success("Instância criada! Escaneie o QR Code.");
-        }
+          if (createData.id) {
+            // 3. Buscar QR Code
+            const { data: qrData } = await axios.get(`${PROXY_URL}/instances/${instanceIdApi}/qr`);
+            if (qrData.qrImage) {
+              setQrCode(qrData.qrImage);
+              toast.success("Instância iniciada! Escaneie o QR Code.");
+            }
+          }
+      } catch (apiError: any) {
+          // Rollback preventivo caso VPS caia durante
+          await supabase.from("whatsapp_instances").delete().eq('instance_id_api', instanceIdApi);
+          throw apiError;
       }
     } catch (error: any) {
       console.error("Erro ao criar instância:", error);
-      toast.error(error.response?.data?.error || "Erro ao conectar com a VPS");
+      // Extrai mensagem específica de erro do banco ou API
+      const errorMessage = error.message || error.response?.data?.error || "Erro ao comunicar com os servidores";
+      toast.error(errorMessage);
     } finally {
       setIsCreating(false);
     }
