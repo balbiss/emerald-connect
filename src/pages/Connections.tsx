@@ -20,11 +20,13 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
@@ -32,26 +34,76 @@ import { useInstances } from "@/hooks/useInstances";
 import { supabase } from "@/lib/supabase";
 
 function InstanceSettingsDialog({ inst, refresh, PROXY_URL }: any) {
+  // --- Configurações Ativas ---
   const [rejectCalls, setRejectCalls] = useState(inst.reject_calls || false);
   const [alwaysOnline, setAlwaysOnline] = useState(inst.always_online || false);
+  const [readMessages, setReadMessages] = useState(false);
+  const [ignoreNewsletters, setIgnoreNewsletters] = useState(true);
+  const [ignoreGroups, setIgnoreGroups] = useState(false);
+  
+  // --- Webhooks Ativos ---
+  const [webhookEnabled, setWebhookEnabled] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
+  const [events, setEvents] = useState<string[]>([]);
+
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+
+  // Load Initial Settings & Webhook via API proxy from PAPI
+  useEffect(() => {
+    if (open && inst.instance_id_api) {
+       const fetchConfigurations = async () => {
+         try {
+           const [settingsRes, webhookRes] = await Promise.all([
+             axios.get(`${PROXY_URL}/instances/${inst.instance_id_api}/settings`),
+             axios.get(`${PROXY_URL}/instances/${inst.instance_id_api}/webhook`),
+           ]);
+
+           if (settingsRes.data?.settings) {
+               const s = settingsRes.data.settings;
+               setRejectCalls(s.rejectCalls || false);
+               setAlwaysOnline(s.alwaysOnline || false);
+               setReadMessages(s.readMessages || false);
+               setIgnoreNewsletters(s.ignoreNewsletters || false);
+               setIgnoreGroups(s.ignoreGroups || false);
+           }
+           if (webhookRes.data?.webhook) {
+               const w = webhookRes.data.webhook;
+               setWebhookEnabled(w.enabled || false);
+               setWebhookUrl(w.url || "");
+               setEvents(w.events || []);
+           }
+         } catch (e) {
+           console.log("Não foi possível carregar as propriedades remotas da instância.");
+         }
+       };
+       fetchConfigurations();
+    }
+  }, [open, inst.instance_id_api]);
 
   const handleUpdate = async () => {
     setLoading(true);
     try {
       if (inst.instance_id_api) {
-        // Envia as configuacoes avacadas recomendadas p/ PAPI!
+        // Envia Settings
         await axios.post(`${PROXY_URL}/instances/${inst.instance_id_api}/settings`, {
           rejectCalls,
           alwaysOnline,
-          ignoreNewsletters: true, 
-          readMessages: false,
+          ignoreNewsletters, 
+          ignoreGroups,
+          readMessages,
           syncFullHistory: false
+        });
+
+        // Envia Webhook Setup
+        await axios.post(`${PROXY_URL}/instances/${inst.instance_id_api}/webhook`, {
+          url: webhookUrl,
+          enabled: webhookEnabled,
+          events: events.includes("all") ? ["all"] : events
         });
       }
       
-      // Salva no nosso Supabase
+      // Salva no nosso Supabase (apenas o que está na DB)
       const { error } = await supabase.from("whatsapp_instances").update({
         reject_calls: rejectCalls,
         always_online: alwaysOnline
@@ -63,17 +115,30 @@ function InstanceSettingsDialog({ inst, refresh, PROXY_URL }: any) {
       refresh();
       setOpen(false);
     } catch (e: any) {
-      toast.error(e.message || "Erro ao conectar settings api");
+      toast.error(e.message || "Erro ao conectar api externa");
     } finally {
       setLoading(false);
     }
   };
 
-  // Sync state if inst props changes dynamically
-  useEffect(() => {
-    setRejectCalls(inst.reject_calls || false);
-    setAlwaysOnline(inst.always_online || false);
-  }, [inst]);
+  const handleEventChange = (eventName: string, checked: boolean) => {
+    if (eventName === "all") {
+        if (checked) {
+            setEvents(["all"]); 
+        } else {
+            setEvents([]);
+        }
+        return;
+    }
+
+    if (checked) {
+       setEvents(prev => [...prev.filter(e => e !== "all"), eventName]);
+    } else {
+       setEvents(prev => prev.filter(e => e !== eventName && e !== "all"));
+    }
+  };
+
+  const isChecked = (eventName: string) => events.includes("all") || events.includes(eventName);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -82,38 +147,192 @@ function InstanceSettingsDialog({ inst, refresh, PROXY_URL }: any) {
           <Settings className="h-5 w-5" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="bg-card border-border/50 max-w-md w-[95%] rounded-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" /> Configurações Avançadas
+      <DialogContent className="bg-[#111827] border-border/20 max-w-2xl w-[95%] p-0 rounded-2xl overflow-hidden shadow-2xl">
+        <DialogHeader className="p-6 pb-2">
+          <DialogTitle className="flex items-center gap-2 text-xl text-white">
+             <Shield className="h-5 w-5 text-emerald-500" /> Painel de Controle
           </DialogTitle>
           <DialogDescription>
-            Ajuste o comportamento técnico de <strong>{inst.name}</strong>.
+            Ajuste avançado técnico de <strong>{inst.name}</strong>.
           </DialogDescription>
         </DialogHeader>
-        
-        <div className="py-4 space-y-4">
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-secondary/20 border border-border/30">
-            <div className="space-y-0.5">
-              <Label className="text-sm font-semibold">Rejeitar Chamadas</Label>
-              <p className="text-[11px] text-muted-foreground">Bloqueia chamadas de voz/vídeo automaticamente.</p>
-            </div>
-            <Switch checked={rejectCalls} onCheckedChange={setRejectCalls} />
-          </div>
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-secondary/20 border border-border/30">
-            <div className="space-y-0.5">
-              <Label className="text-sm font-semibold">Sempre Online</Label>
-              <p className="text-[11px] text-muted-foreground">Mantém o Status online 24/7 na linha.</p>
-            </div>
-            <Switch checked={alwaysOnline} onCheckedChange={setAlwaysOnline} />
-          </div>
-        </div>
 
-        <DialogFooter>
-          <Button onClick={handleUpdate} disabled={loading} className="w-full gradient-emerald text-primary-foreground font-bold h-11">
-             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Atualizar Configurações"}
+        <Tabs defaultValue="webhook" className="w-full">
+            <div className="px-6 border-b border-border/20">
+               <TabsList className="bg-transparent h-12 w-full justify-start gap-4 p-0">
+                 <TabsTrigger value="webhook" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 rounded-none px-2 text-md text-gray-300">Webhook / Eventos</TabsTrigger>
+                 <TabsTrigger value="settings" className="data-[state=active]:bg-transparent data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-emerald-500 rounded-none px-2 text-md text-gray-300">Configurações Base</TabsTrigger>
+               </TabsList>
+            </div>
+
+            <ScrollArea className="h-[60vh] px-6 py-4">
+              {/* TAB WEBHOOK (Igual as fotos 1 e 2 do usuario) */}
+              <TabsContent value="webhook" className="space-y-6 mt-0 w-full pr-4">
+                  <div className="flex items-center justify-between bg-[#1F2937]/50 border border-white/5 p-4 rounded-xl">
+                      <div>
+                          <h3 className="font-bold text-gray-100">Instância de Webhook</h3>
+                          <p className="text-xs text-muted-foreground">Receba mensagens e eventos de sistema via HTTP POST (JSON)</p>
+                      </div>
+                      <Switch checked={webhookEnabled} onCheckedChange={setWebhookEnabled} />
+                  </div>
+
+                  {webhookEnabled && (
+                  <div className="space-y-6 animate-fade-in w-full pb-6">
+                      <div className="space-y-2">
+                          <Label className="text-sm font-semibold text-gray-200">URL do Webhook</Label>
+                          <Input 
+                            value={webhookUrl} 
+                            onChange={(e) => setWebhookUrl(e.target.value)}
+                            placeholder="https://seu-servidor.com/webhook"
+                            className="bg-[#1F2937] border-white/10 dark:border-white/10 h-10 w-full font-mono text-emerald-400"
+                          />
+                      </div>
+
+                      <div className="space-y-4">
+                          <h4 className="text-sm text-muted-foreground font-medium uppercase tracking-wider">Eventos para Receber:</h4>
+                          
+                          {/* MENSAGENS */}
+                          <div className="space-y-3">
+                              <h5 className="flex items-center gap-2 text-emerald-400 font-semibold text-sm">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none" className="lucide"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 
+                                  Mensagens
+                              </h5>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-1">
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("messages")} onCheckedChange={(c) => handleEventChange("messages", !!c)} />
+                                     <span className="text-sm text-gray-300">Mensagens recebidas</span>
+                                  </label>
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("message_status")} onCheckedChange={(c) => handleEventChange("message_status", !!c)} />
+                                     <span className="text-sm text-gray-300">Status (enviado/lido)</span>
+                                  </label>
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("message_reaction")} onCheckedChange={(c) => handleEventChange("message_reaction", !!c)} />
+                                     <span className="text-sm text-gray-300">Reações (emoji)</span>
+                                  </label>
+                              </div>
+                          </div>
+
+                          {/* GRUPOS */}
+                          <div className="space-y-3 pt-2">
+                              <h5 className="flex items-center gap-2 text-blue-400 font-semibold text-sm">Grupos</h5>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-1">
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("group_update")} onCheckedChange={(c) => handleEventChange("group_update", !!c)} />
+                                     <span className="text-sm text-gray-300">Atualizações de Título/Foto</span>
+                                  </label>
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("group_participants_update")} onCheckedChange={(c) => handleEventChange("group_participants_update", !!c)} />
+                                     <span className="text-sm text-gray-300">Entrada/Saída Participantes</span>
+                                  </label>
+                              </div>
+                          </div>
+
+                           {/* CONTATOS */}
+                          <div className="space-y-3 pt-2">
+                              <h5 className="flex items-center gap-2 text-orange-400 font-semibold text-sm">Contatos</h5>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-1">
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("presence_update")} onCheckedChange={(c) => handleEventChange("presence_update", !!c)} />
+                                     <span className="text-sm text-gray-300">Presença (Digitando/Online)</span>
+                                  </label>
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("contacts_update")} onCheckedChange={(c) => handleEventChange("contacts_update", !!c)} />
+                                     <span className="text-sm text-gray-300">Atualização de Perfil</span>
+                                  </label>
+                              </div>
+                          </div>
+
+                          {/* CHAMADAS */}
+                          <div className="space-y-3 pt-2">
+                              <h5 className="flex items-center gap-2 text-purple-400 font-semibold text-sm">Chamadas e Eventos de Status</h5>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-1">
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("call")} onCheckedChange={(c) => handleEventChange("call", !!c)} />
+                                     <span className="text-sm text-gray-300">Receber Chamadas (Voz/Video)</span>
+                                  </label>
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("chats_update")} onCheckedChange={(c) => handleEventChange("chats_update", !!c)} />
+                                     <span className="text-sm text-gray-300">Novos Chats / Atualizações</span>
+                                  </label>
+                              </div>
+                          </div>
+
+                          {/* OUTROS e TODOS OS EVENTOS */}
+                          <div className="space-y-3 pt-2">
+                              <h5 className="flex items-center gap-2 text-pink-400 font-semibold text-sm">Outros</h5>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pl-1">
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("labels_edit")} onCheckedChange={(c) => handleEventChange("labels_edit", !!c)} />
+                                     <span className="text-sm text-gray-300">Edição de Etiquetas</span>
+                                  </label>
+                                  <label className="flex items-center gap-3 p-3 bg-[#1F2937] border border-white/5 rounded-lg cursor-pointer hover:bg-white/10 transition">
+                                     <Checkbox checked={isChecked("history_sync")} onCheckedChange={(c) => handleEventChange("history_sync", !!c)} />
+                                     <span className="text-sm text-gray-300">Sincronização de Histórico</span>
+                                  </label>
+                              </div>
+                          </div>
+
+                          <label className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg cursor-pointer hover:bg-emerald-500/20 transition mt-4 w-full">
+                              <div className="flex items-center gap-3">
+                                <Checkbox checked={events.includes("all")} onCheckedChange={(c) => handleEventChange("all", !!c)} className="border-emerald-500 data-[state=checked]:bg-emerald-500 data-[state=checked]:text-black" />
+                                <span className="text-sm text-emerald-400 font-bold tracking-wide">TODOS OS EVENTOS (FIREHOSE)</span>
+                              </div>
+                              <span className="text-[10px] text-emerald-600/80 uppercase font-mono">Recebe tudo pelo Webhook MESTRE</span>
+                          </label>
+
+                      </div>
+                  </div>
+                  )}
+              </TabsContent>
+
+              {/* TAB SETTINGS (Configurações Originais) */}
+              <TabsContent value="settings" className="space-y-4 mt-0 w-full pr-4 pb-6">
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/10 border border-border/20">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-semibold text-gray-100">Rejeitar Chamadas</Label>
+                      <p className="text-[11px] text-muted-foreground mr-6">Bloqueia chamadas de voz/vídeo automaticamente (comporta-se como DND).</p>
+                    </div>
+                    <Switch checked={rejectCalls} onCheckedChange={setRejectCalls} />
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/10 border border-border/20">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-semibold text-gray-100">Sempre Online</Label>
+                      <p className="text-[11px] text-muted-foreground mr-6">Mantém o Status online 24/7 na linha forçando atividade.</p>
+                    </div>
+                    <Switch checked={alwaysOnline} onCheckedChange={setAlwaysOnline} />
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/10 border border-border/20">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-semibold text-gray-100">Ler Mensagens Automaticamente</Label>
+                      <p className="text-[11px] text-muted-foreground mr-6">Marca todas as mensagens que chegam nesta instância com as barras azuis.</p>
+                    </div>
+                    <Switch checked={readMessages} onCheckedChange={setReadMessages} />
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/10 border border-border/20">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-semibold text-gray-100">Ignorar Canais/Newsletters</Label>
+                      <p className="text-[11px] text-muted-foreground mr-6">Desativa recebimento de interações de Canais do WhatsApp. (Ajuda a evitar Ban)</p>
+                    </div>
+                    <Switch checked={ignoreNewsletters} onCheckedChange={setIgnoreNewsletters} />
+                  </div>
+                  <div className="flex items-center justify-between p-4 rounded-xl bg-secondary/10 border border-border/20">
+                    <div className="space-y-0.5">
+                      <Label className="text-sm font-semibold text-gray-100">Ignorar Grupos</Label>
+                      <p className="text-[11px] text-muted-foreground mr-6">Evita processamento e notificação de mensagens vindas de grupos.</p>
+                    </div>
+                    <Switch checked={ignoreGroups} onCheckedChange={setIgnoreGroups} />
+                  </div>
+              </TabsContent>
+            </ScrollArea>
+        </Tabs>
+
+        {/* Footer Bar da Modal */}
+        <div className="p-4 bg-black/40 border-t border-border/20 w-full relative z-10">
+          <Button onClick={handleUpdate} disabled={loading} className="w-full gradient-emerald text-primary-foreground font-bold h-12 text-md shadow-lg shadow-emerald-500/20 flex gap-2 items-center justify-center rounded-xl">
+             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <> <Settings className="w-5 h-5"/> Salvar Configurações</>}
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

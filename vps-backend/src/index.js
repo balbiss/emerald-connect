@@ -90,9 +90,37 @@ app.post('/api-proxy/instances/:id/proxy', async (req, res) => {
 });
 
 // Configurações
+app.get('/api-proxy/instances/:id/settings', async (req, res) => {
+  try {
+    const { data } = await api.get(`/api/instances/${req.params.id}/settings`);
+    res.json(data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal Error' });
+  }
+});
+
 app.post('/api-proxy/instances/:id/settings', async (req, res) => {
   try {
     const { data } = await api.post(`/api/instances/${req.params.id}/settings`, req.body);
+    res.json(data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal Error' });
+  }
+});
+
+// Webhook
+app.get('/api-proxy/instances/:id/webhook', async (req, res) => {
+  try {
+    const { data } = await api.get(`/api/instances/${req.params.id}/webhook`);
+    res.json(data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal Error' });
+  }
+});
+
+app.post('/api-proxy/instances/:id/webhook', async (req, res) => {
+  try {
+    const { data } = await api.post(`/api/instances/${req.params.id}/webhook`, req.body);
     res.json(data);
   } catch (error) {
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal Error' });
