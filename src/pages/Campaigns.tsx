@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { MessageBuilder } from "@/components/MessageBuilder";
+import { useState, useEffect } from "react";
+import { MessageBuilder, MessagePayload } from "@/components/MessageBuilder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { 
@@ -19,21 +19,67 @@ import {
   Calendar,
   Layers,
   Zap,
-  Smartphone
+  Smartphone,
+  Settings
 } from "lucide-react";
-import { useCampaigns } from "@/hooks/useCampaigns";
+import { useCampaigns, useCampaignActions } from "@/hooks/useCampaigns";
 import { useInstances } from "@/hooks/useInstances";
 import { useReports } from "@/hooks/useReports";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { toast } from "sonner";
 
 export default function Campaigns() {
   const [step, setStep] = useState<"config" | "build">("config");
   const { campaigns, loading: loadingCampaigns } = useCampaigns();
   const { instances, loading: loadingInstances } = useInstances();
   const { logs } = useReports(); // For contact count proxy
+  const { createCampaign, isCreating } = useCampaignActions();
 
   const uniqueContactsCount = new Set(logs.map(l => l.remote_jid)).size;
+
+  // Form State
+  const [name, setName] = useState("");
+  const [listType, setListType] = useState("all");
+  const [instanceId, setInstanceId] = useState("");
+  const [scheduledAt, setScheduledAt] = useState("");
+  
+  const [messageConfig, setMessageConfig] = useState<MessagePayload | null>(null);
+
+  // Define default instance when loaded
+  useEffect(() => {
+     if (instances.length > 0 && !instanceId) {
+        setInstanceId(instances[0].id);
+     }
+  }, [instances]);
+
+  const handleActivate = async () => {
+    if (!name) return toast.error("Informe um nome para a campanha");
+    if (!instanceId) return toast.error("Selecione uma instância para o disparo");
+    if (!messageConfig) return toast.error("Nenhuma mensagem configurada");
+
+    // Lógica boba para mockar números (no futuro pegaria do DB baseado na segmentação)
+    // Vamos simular disparando para contatos que já interagiram + o que houver
+    const mockNumbers = logs.slice(0, 10).map(l => l.remote_jid).filter(Boolean);
+    if (mockNumbers.length === 0) {
+      // Fake number se o BD estiver vazio
+      mockNumbers.push("5511999999999@s.whatsapp.net");
+    }
+
+    const result = await createCampaign({
+      name,
+      instance_id: instanceId,
+      numbers_list: mockNumbers,
+      message_config: messageConfig,
+      scheduled_at: scheduledAt || undefined
+    });
+
+    if (result) {
+       setStep("config");
+       setName("");
+       setScheduledAt("");
+    }
+  };
 
   if (step === "build") {
     return (
@@ -44,13 +90,18 @@ export default function Campaigns() {
             <p className="text-sm text-muted-foreground mt-1">Monte a mensagem perfeita para conversão</p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setStep("config")} className="border-border/50 h-10 px-6 font-semibold">Voltar</Button>
-            <Button className="gradient-emerald text-primary-foreground font-bold gap-2 h-10 px-6 shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95">
-              <Zap className="h-4 w-4" /> Ativar Disparo
+            <Button variant="outline" onClick={() => setStep("config")} disabled={isCreating} className="border-border/50 h-10 px-6 font-semibold">Voltar</Button>
+            <Button 
+               onClick={handleActivate}
+               disabled={isCreating}
+               className="gradient-emerald text-primary-foreground font-bold gap-2 h-10 px-6 shadow-lg shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95"
+            >
+              {isCreating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+              {isCreating ? "Ativando..." : "Ativar Disparo"}
             </Button>
           </div>
         </div>
-        <MessageBuilder />
+        <MessageBuilder onChange={setMessageConfig} />
       </div>
     );
   }
@@ -87,11 +138,16 @@ export default function Campaigns() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           <div>
             <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2.5 block">Nome da Campanha</label>
-            <Input placeholder="Ex: Black Friday 2024" className="bg-secondary/30 border-border/30 h-11 focus-visible:ring-emerald-500/30" />
+            <Input 
+               value={name}
+               onChange={(e) => setName(e.target.value)}
+               placeholder="Ex: Black Friday 2024" 
+               className="bg-secondary/30 border-border/30 h-11 focus-visible:ring-emerald-500/30 font-semibold" 
+            />
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2.5 block">Segmentação / Público</label>
-            <Select>
+            <Select value={listType} onValueChange={setListType}>
               <SelectTrigger className="bg-secondary/30 border-border/30 h-11 focus-visible:ring-emerald-500/30">
                 <SelectValue placeholder="Selecione uma lista" />
               </SelectTrigger>
@@ -104,7 +160,7 @@ export default function Campaigns() {
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2.5 block">Instância Conectada</label>
-            <Select>
+            <Select value={instanceId} onValueChange={setInstanceId}>
               <SelectTrigger className="bg-secondary/30 border-border/30 h-11 focus-visible:ring-emerald-500/30">
                 <SelectValue placeholder="Selecione o número" />
               </SelectTrigger>
@@ -123,12 +179,23 @@ export default function Campaigns() {
           <div>
             <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold mb-2.5 block">Agendamento Opcional</label>
             <div className="flex gap-2">
-              <Input type="datetime-local" className="bg-secondary/30 border-border/30 h-11 flex-1 text-xs" />
+              <Input 
+                type="datetime-local" 
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="bg-secondary/30 border-border/30 h-11 flex-1 text-xs" 
+              />
             </div>
           </div>
         </div>
         <div className="flex justify-end">
-          <Button className="gradient-emerald text-primary-foreground font-bold gap-2 h-11 px-8 shadow-md shadow-emerald-500/20" onClick={() => setStep("build")}>
+          <Button 
+            className="gradient-emerald text-primary-foreground font-bold gap-2 h-11 px-8 shadow-md shadow-emerald-500/20" 
+            onClick={() => {
+              if (!name) return toast.error("Preencha o nome antes de avançar");
+              setStep("build");
+            }}
+          >
             Avançar para Criativo <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
