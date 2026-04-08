@@ -141,7 +141,9 @@ app.delete('/api-proxy/instances/:id', async (req, res) => {
 
 // Processador da fila
 messageQueue.process(async (job) => {
-  const { campaignId, userId, instanceId, number, messageData, delay } = job.data;
+  const { campaignId, userId, instanceId, numberInfo, messageData, delay } = job.data;
+  const targetNumber = numberInfo.phone;
+  const targetName = numberInfo.name || '';
   
   try {
     // 1. Aguardar delay se configurado (Randomização/Delay entre mensagens)
@@ -149,25 +151,32 @@ messageQueue.process(async (job) => {
       await new Promise(resolve => setTimeout(resolve, delay));
     }
 
+    // Função utilitária para substituir {{nome}} e similares
+    const applyVariables = (text) => {
+      if (!text || typeof text !== 'string') return text;
+      return text.replace(/\{\{nome\}\}/gi, targetName || 'Cliente').replace(/\{\{numero\}\}/gi, targetNumber);
+    };
+
     // 2. Escolher endpoint e payload baseado na Pastorini API v1.6
     let endpoint = '/send-text';
-    let payload = { jid: `${number}@s.whatsapp.net`, ...messageData.text };
+    let payload = { jid: `${targetNumber}@s.whatsapp.net` };
     
-    // Suporte a diferentes tipos de mensagens da PAPI v1.6
-    if (messageData.type === 'carousel') {
+    // Suporte a diferentes tipos de mensagens da PAPI v1.6 aplicando as variáveis
+    if (messageData.type === 'text' && messageData.text) {
+       payload = { ...payload, ...messageData.text, text: applyVariables(messageData.text.text) };
+    } else if (messageData.type === 'carousel') {
       endpoint = '/send-carousel';
-      payload = { jid: `${number}@s.whatsapp.net`, ...messageData.carousel };
+      payload = { ...payload, ...messageData.carousel, body: applyVariables(messageData.carousel.body) };
     } else if (messageData.type === 'poll') {
       endpoint = '/send-poll';
-      payload = { jid: `${number}@s.whatsapp.net`, ...messageData.poll };
+      payload = { ...payload, ...messageData.poll, name: applyVariables(messageData.poll.name) };
     } else if (messageData.type === 'buttons') {
       endpoint = '/send-buttons';
-      payload = { jid: `${number}@s.whatsapp.net`, ...messageData.buttons };
+      payload = { ...payload, ...messageData.buttons, text: applyVariables(messageData.buttons.text) };
     } else if (messageData.type === 'media') {
-      // Ajuste para send-image, send-video, etc se necessário
       const mediaType = messageData.media?.type || 'image';
       endpoint = `/send-${mediaType}`;
-      payload = { jid: `${number}@s.whatsapp.net`, ...messageData.media };
+      payload = { ...payload, ...messageData.media, caption: applyVariables(messageData.media?.caption) };
     }
 
     const { data } = await api.post(`/api/instances/${instanceId}${endpoint}`, payload);
@@ -177,7 +186,7 @@ messageQueue.process(async (job) => {
       await supabase.from('message_logs').insert([{
         user_id: userId,
         campaign_id: campaignId,
-        remote_jid: data.remoteJid || `${number}@s.whatsapp.net`,
+        remote_jid: data.remoteJid || `${targetNumber}@s.whatsapp.net`,
         message_id_api: data.messageId,
         status: 'SENT'
       }]);
@@ -193,7 +202,7 @@ messageQueue.process(async (job) => {
     await supabase.from('message_logs').insert([{
         user_id: userId,
         campaign_id: campaignId,
-        remote_jid: `${number}@s.whatsapp.net`,
+        remote_jid: `${targetNumber}@s.whatsapp.net`,
         status: 'ERROR',
         error_message: error.response?.data?.error || error.message
     }]);
@@ -207,25 +216,37 @@ async function monitorCampaigns() {
   const { data: campaigns, error } = await supabase
     .from('campaigns')
     .select('*')
-    .eq('status', 'PENDING');
+    .in('status', ['PENDING', 'pending']);
     
   if (error || !campaigns?.length) return;
 
   for (const campaign of campaigns) {
     console.log(`🚀 Iniciando Campanha: ${campaign.name} (${campaign.numbers_list?.length} números)`);
     
-    // 1. Marcar como PROCESSING
-    await supabase.from('campaigns').update({ status: 'PROCESSING' }).eq('id', campaign.id);
+    // 1. Marcar como PROCESSING ou processing (usaremos minúsculo para unificar padrão se foi corrigido no front)
+    await supabase.from('campaigns').update({ status: 'processing' }).eq('id', campaign.id);
     
     const numbers = campaign.numbers_list || [];
     const config = campaign.message_config || {};
     
-    // Configurações de delay (padronizadas ou customizadas)
-    const minDelay = config.minDelay || 2000;
-    const maxDelay = config.maxDelay || 5000;
+    // Configurações de delay (lidas da subprop options inserida pelo front - Convertendo Segundos para ms)
+    const minDelay = config.options?.delayMin ? config.options.delayMin * 1000 : 5000;
+    const maxDelay = config.options?.delayMax ? config.options.delayMax * 1000 : 15000;
 
     for (let i = 0; i < numbers.length; i++) {
-      const num = numbers[i];
+      const numRaw = numbers[i];
+      let phone = numRaw;
+      let name = '';
+      
+      // Checa se veio com o delimitador de nome (Ex: 5511999999999|João Silva)
+      if (numRaw.includes('|')) {
+         const parts = numRaw.split('|');
+         phone = parts[0].trim();
+         name = parts.slice(1).join(' ').trim();
+      }
+      
+      // Limpar JID caso a validação do PAPI reclame ou usar como base limpa no Queue
+      phone = phone.replace('@s.whatsapp.net', '');
       
       // Lógica de delay individual para cada job na fila (randomização entre min e max)
       const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
@@ -234,7 +255,7 @@ async function monitorCampaigns() {
         campaignId: campaign.id,
         userId: campaign.user_id,
         instanceId: campaign.instance_id_api,
-        number: num,
+        numberInfo: { phone, name },
         messageData: config,
         delay: i === 0 ? 0 : randomDelay // Primeira mensagem sai na hora, as outras com delay
       }, {

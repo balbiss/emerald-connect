@@ -65,13 +65,23 @@ export default function Campaigns() {
     let finalNumbers: string[] = [];
     if (listType === "manual") {
       if (!manualContacts.trim()) return toast.error("Você selecionou Lista Manual. Cole os contatos!");
-      // Extrair apenas dígitos, limpar vazios e formatar
-      finalNumbers = manualContacts.split(/[\n,;]+/)
-        .map(n => n.replace(/\D/g, ''))
-        .filter(n => n.length >= 10 && n.length <= 15)
-        .map(n => n.includes('@s.whatsapp.net') ? n : `${n}@s.whatsapp.net`);
+      // Lê cada linha. Espera: número OU número,nome
+      // Ex: 5511999999999,João da Silva
+      finalNumbers = manualContacts.split('\n').map(line => {
+         if (!line.trim()) return null;
+         const parts = line.split(',');
+         const numberRaw = parts[0] || line;
+         const nameRaw = parts.length > 1 ? parts.slice(1).join(',').trim() : '';
+         
+         const cleanNumber = numberRaw.replace(/\D/g, '');
+         if (cleanNumber.length >= 10 && cleanNumber.length <= 15) {
+            const jid = cleanNumber.includes('@s.whatsapp.net') ? cleanNumber : `${cleanNumber}@s.whatsapp.net`;
+            return nameRaw ? `${jid}|${nameRaw}` : jid;
+         }
+         return null;
+      }).filter(Boolean) as string[];
         
-      if (finalNumbers.length === 0) return toast.error("Nenhum número válido encontrado. Formato Ex: 5511999999999");
+      if (finalNumbers.length === 0) return toast.error("Nenhum contato válido encontrado. Formato Ex: 5511999999999,Nome");
     } else {
       // Pega contatos do BD
       finalNumbers = Array.from(new Set(logs.map(l => l.remote_jid).filter(Boolean)));
@@ -217,14 +227,14 @@ export default function Campaigns() {
            {listType === "manual" && (
              <div className="animate-fade-in border border-amber-500/20 bg-amber-500/5 rounded-xl p-4">
                 <label className="text-[10px] uppercase tracking-widest text-amber-500 font-bold mb-2.5 flex items-center justify-between">
-                   <span>Colar Lista de Números</span>
-                   <span className="text-secondary-foreground/50 text-[9px]">Apenas DDI+DDD+NÚMERO, cada um em uma linha ou separados por vírgula.</span>
+                   <span>Colar Lista de Contatos</span>
+                   <span className="text-secondary-foreground/50 text-[9px]">Formato: NÚMERO ou NÚMERO,NOME. Cada um em uma linha.</span>
                 </label>
                 <textarea
                    value={manualContacts}
                    onChange={e => setManualContacts(e.target.value)}
                    className="w-full bg-background/50 border border-border/40 rounded-lg p-3 text-xs font-mono min-h-[100px] max-h-[200px] resize-y placeholder:text-muted-foreground/30 focus-visible:ring-amber-500/30 outline-none"
-                   placeholder="Ex:&#10;5511999999999&#10;5511988888888&#10;..."
+                   placeholder="Ex:&#10;5511999999999&#10;5511988888888,João Silva&#10;5511977777777,Maria Santos&#10;..."
                 />
              </div>
            )}
