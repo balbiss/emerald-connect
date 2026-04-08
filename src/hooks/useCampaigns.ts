@@ -77,42 +77,45 @@ export function useCampaignActions() {
       const { data: userData } = await supabase.auth.getUser();
       if (!userData.user) throw new Error("Usuário não autenticado");
 
+      const novaCampanha = {
+        name: campaignData.name,
+        user_id: userData.user.id,
+        instance_id_api: campaignData.instance_id,
+        numbers_list: campaignData.numbers_list,
+        message_config: campaignData.message_config,
+        total_numbers: campaignData.numbers_list.length,
+        status: campaignData.scheduled_at ? "scheduled" : "pending",
+        scheduled_at: campaignData.scheduled_at || null
+      };
+
       const { data, error } = await supabase
         .from("campaigns")
-        .insert([{
-          name: campaignData.name,
-          user_id: userData.user.id,
-          instance_id_api: campaignData.instance_id,
-          numbers_list: campaignData.numbers_list,
-          message_config: campaignData.message_config,
-          total_numbers: campaignData.numbers_list.length,
-          // Removed manual status definition since the Supabase constraints checks for lower/upper rules or handles defaults automatically.
-          ...(campaignData.scheduled_at ? { scheduled_at: campaignData.scheduled_at, status: "scheduled" } : { status: "pending" })
-        }])
-        .select()
-        .single();
+        .insert([novaCampanha])
+        .select();
 
-      if (error) throw error;
-      toast.success("Campanha criada e enviada para a fila!");
+      if (error) {
+         toast.error(`Falha bruta: ${error.message} (Cód: ${error.code})`);
+         console.error("ERRO COMPLETO NATIVO:", error);
+         
+         // Se for violacao de check do banco de dados (letra PENDING), faz o fallback:
+         if (error.code === '23514') {
+             const { error: errFallback } = await supabase.from("campaigns").insert([{...novaCampanha, status: 'PENDING'}]);
+             if (errFallback) {
+                 toast.error(`Falha definitiva: ${errFallback.message}`);
+                 return null;
+             }
+             toast.success("Campanha criada e enviada (Via Fallback PENDING!)");
+             return novaCampanha;
+         }
+         
+         return null;
+      }
+      
+      toast.success("Campanha criada com sucesso!");
       return data;
     } catch (error: any) {
-      console.error("Error creating campaign:", error);
-      // fallback just in case DB expects upper case 'PENDING'
-      if (error.code === '23514') {
-         toast.error("Erro interno no banco. O constraint de status impediu. Tente novamente.");
-         // fallback insert if it fails
-         await supabase.from("campaigns").insert([{
-            name: campaignData.name,
-            user_id: userData.user.id,
-            instance_id_api: campaignData.instance_id,
-            numbers_list: campaignData.numbers_list,
-            message_config: campaignData.message_config,
-            total_numbers: campaignData.numbers_list.length,
-            status: 'PENDING'
-         }]);
-      } else {
-         toast.error(error.message || "Erro ao criar campanha");
-      }
+      console.error("Error creating campaign try-catch:", error);
+      toast.error(error?.message || "Exceção ao criar campanha");
       return null;
     } finally {
       setIsCreating(false);
