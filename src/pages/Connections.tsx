@@ -39,7 +39,7 @@ export default function Connections() {
   const [qrCode, setQrCode] = useState<string | null>(null);
   const [activeInstanceId, setActiveInstanceId] = useState<string | null>(null);
 
-  const PROXY_URL = "https://zap.inoovaweb.com.br/api-proxy";
+  const PROXY_URL = "/api-proxy";
 
   const handleCreateInstance = async () => {
     if (!newName) {

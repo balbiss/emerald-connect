@@ -2,8 +2,22 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Bell, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const [profile, setProfile] = useState({ fullName: "Carregando...", initials: "" });
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) {
+        const name = user.user_metadata?.full_name || user.email?.split("@")[0] || "Usuário";
+        const parts = name.split(" ");
+        const initials = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}`.toUpperCase() : name.substring(0, 2).toUpperCase();
+        setProfile({ fullName: name, initials });
+      }
+    });
+  }, []);
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -28,10 +42,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <div className="h-8 w-px bg-border/40" />
               <div className="flex items-center gap-2.5">
                 <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center ring-1 ring-primary/20">
-                  <span className="text-xs font-bold text-primary">JD</span>
+                  <span className="text-xs font-bold text-primary">{profile.initials || "E"}</span>
                 </div>
                 <div className="hidden sm:block">
-                  <p className="text-xs font-medium text-foreground leading-none">João Dev</p>
+                  <p className="text-xs font-medium text-foreground leading-none">{profile.fullName}</p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">Admin</p>
                 </div>
               </div>
