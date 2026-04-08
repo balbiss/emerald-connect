@@ -17,11 +17,31 @@ const VPS_API_URL = process.env.VPS_API_URL || 'https://zap.inoovaweb.com.br';
 const VPS_API_KEY = process.env.VPS_API_KEY || '280896Ab@';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 
+// VALIDAÇÃO CRÍTICA NA INICIALIZAÇÃO
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+  console.error('❌ ERRO CRÍTICO: SUPABASE_URL ou SUPABASE_SERVICE_KEY não definidos!');
+  console.error('Certifique-se de configurar as variáveis de ambiente corretamente.');
+  process.exit(1); 
+}
+
 // CLIENTE SUPABASE (MODO ADMIN PARA BYPASS RLS NO WORKER)
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+let supabase;
+try {
+  supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+  console.log('✅ Cliente Supabase inicializado.');
+} catch (error) {
+  console.error('❌ Erro ao inicializar cliente Supabase:', error.message);
+  process.exit(1);
+}
 
 // FILA DE DISPARO (REDIS)
-const messageQueue = new Bull('message-disparo', REDIS_URL);
+let messageQueue;
+try {
+  messageQueue = new Bull('message-disparo', REDIS_URL);
+  console.log('✅ Fila Bull inicializada (Redis).');
+} catch (error) {
+  console.error('❌ Erro ao inicializar fila Redis:', error.message);
+}
 
 // --- 1. PROXY DE API (LOVABLE -> PASTORINI API) ---
 const api = axios.create({

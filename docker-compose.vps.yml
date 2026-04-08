@@ -20,7 +20,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
-        - "traefik.http.routers.ia-disparo-api.rule=Host('api-disparo.inoovaweb.cloud')"
+        - "traefik.http.routers.ia-disparo-api.rule=Host('api-iadisparo.inoovaweb.cloud')"
         - "traefik.http.routers.ia-disparo-api.entrypoints=websecure"
         - "traefik.http.routers.ia-disparo-api.tls.certresolver=myresolver"
         - "traefik.http.services.ia-disparo-api.loadbalancer.server.port=4000"
