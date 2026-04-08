@@ -98,22 +98,48 @@ export default function RegisterPage() {
               <form onSubmit={handleRegister} id="register-form" className="space-y-4">
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold ml-1">Nome Completo</label>
-                  <Input placeholder="John Doe" required className="bg-secondary/40 border-border/40 h-11" />
+                  <Input 
+                    placeholder="John Doe" 
+                    required 
+                    className="bg-secondary/40 border-border/40 h-11"
+                    value={formData.fullName}
+                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold ml-1">E-mail Corporativo</label>
-                  <Input type="email" placeholder="john@empresa.com" required className="bg-secondary/40 border-border/40 h-11" />
+                  <Input 
+                    type="email" 
+                    placeholder="john@empresa.com" 
+                    required 
+                    className="bg-secondary/40 border-border/40 h-11"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold ml-1">WhatsApp (com DDD)</label>
                   <div className="relative">
                     <Smartphone className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input placeholder="5511999999999" required className="bg-secondary/40 border-border/40 h-11 pl-11" />
+                    <Input 
+                      placeholder="5511999999999" 
+                      required 
+                      className="bg-secondary/40 border-border/40 h-11 pl-11"
+                      value={formData.whatsapp}
+                      onChange={(e) => setFormData({ ...formData, whatsapp: e.target.value })}
+                    />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-bold ml-1">Senha Mestra</label>
-                  <Input type="password" placeholder="••••••••" required className="bg-secondary/40 border-border/40 h-11 font-mono" />
+                  <Input 
+                    type="password" 
+                    placeholder="••••••••" 
+                    required 
+                    className="bg-secondary/40 border-border/40 h-11 font-mono"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  />
                 </div>
 
                 <div className="flex items-start gap-3 p-3 rounded-lg bg-white/5 border border-white/5">
