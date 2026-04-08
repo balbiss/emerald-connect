@@ -26,17 +26,22 @@ export function useCampaigns() {
       if (campaignsError) throw campaignsError;
 
       const campaignsWithCounts = await Promise.all((campaignsData || []).map(async (c) => {
-        const { count, error: countError } = await supabase
-          .from("message_logs")
-          .select("*", { count: "exact", head: true })
-          .eq("campaign_id", c.id);
-        
-        return { ...c, sent_count: count || 0 };
+        try {
+          const { count } = await supabase
+            .from("message_logs")
+            .select("*", { count: "exact", head: true })
+            .eq("campaign_id", c.id);
+          
+          return { ...c, sent_count: count || 0 };
+        } catch (e) {
+          return { ...c, sent_count: 0 };
+        }
       }));
 
       setCampaigns(campaignsWithCounts);
     } catch (error: any) {
       console.error("Error fetching campaigns:", error);
+      toast.error("Erro ao carregar campanhas: " + error.message);
     } finally {
       setLoading(false);
     }

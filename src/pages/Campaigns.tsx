@@ -281,7 +281,12 @@ export default function Campaigns() {
         </div>
         
         <div className="grid grid-cols-1 gap-4">
-          {campaigns.length === 0 ? (
+          {loadingCampaigns ? (
+             <div className="bg-secondary/20 rounded-2xl p-20 text-center border border-dashed border-border/40 animate-pulse">
+                <Loader2 className="h-8 w-8 text-primary animate-spin mx-auto mb-4" />
+                <p className="text-muted-foreground">Carregando histórico de campanhas...</p>
+             </div>
+          ) : campaigns.length === 0 ? (
              <div className="glass-card-static p-20 text-center border-dashed opacity-50">
                 <p className="text-muted-foreground italic">Nenhuma campanha registrada no Supabase.</p>
              </div>
@@ -322,10 +327,12 @@ export default function Campaigns() {
                       <div className="flex items-center gap-3">
                         <Badge className={`${
                           isProcessing ? "bg-primary/10 text-primary border-primary/20" : 
-                          c.status === "COMPLETED" ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : 
+                          isCompleted ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : 
                           "bg-amber-500/10 text-amber-500 border-amber-500/20"
                         } px-4 py-1 font-bold text-[10px] uppercase tracking-wider`}>
-                          {c.status === "PROCESSING" ? "Enviando" : c.status === "PENDING" ? "Fila" : c.status === "COMPLETED" ? "Concluído" : "Agendado"}
+                          {["PROCESSING", "processing"].includes(c.status) ? "Enviando" : 
+                           ["PENDING", "pending"].includes(c.status) ? "Na Fila" : 
+                           isCompleted ? "Concluído" : "Agendado"}
                         </Badge>
                         <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-40 hover:opacity-100">
                           <Settings className="h-4 w-4" />

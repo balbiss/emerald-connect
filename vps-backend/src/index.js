@@ -145,9 +145,12 @@ messageQueue.process(async (job) => {
   const targetNumber = numberInfo.phone;
   const targetName = numberInfo.name || '';
   
+  console.log(`[Job ${job.id}] Enviando para: ${targetNumber} (${targetName}) - Campanha: ${campaignId}`);
+
   try {
     // 1. Aguardar delay se configurado (Randomização/Delay entre mensagens)
     if (delay > 0) {
+      console.log(`[Job ${job.id}] Aguardando delay de ${delay}ms...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
 
@@ -226,7 +229,7 @@ messageQueue.process(async (job) => {
     
     return data;
   } catch (error) {
-    console.error(`Erro no envio para ${number}:`, error.message);
+    console.error(`Erro no envio para ${targetNumber}:`, error.message);
     
     await supabase.from('message_logs').insert([{
         user_id: userId,
@@ -242,63 +245,84 @@ messageQueue.process(async (job) => {
 
 // Monitor de Campanhas (Vigilante)
 async function monitorCampaigns() {
-  const { data: campaigns, error } = await supabase
-    .from('campaigns')
-    .select('*')
-    .in('status', ['PENDING', 'pending']);
-    
-  if (error || !campaigns?.length) return;
-
-  for (const campaign of campaigns) {
-    console.log(`🚀 Iniciando Campanha: ${campaign.name} (${campaign.numbers_list?.length} números)`);
-    
-    // 1. Marcar como PROCESSING ou processing (usaremos minúsculo para unificar padrão se foi corrigido no front)
-    await supabase.from('campaigns').update({ status: 'processing' }).eq('id', campaign.id);
-    
-    const numbers = campaign.numbers_list || [];
-    const config = campaign.message_config || {};
-    
-    // Configurações de delay (lidas da subprop options inserida pelo front - Convertendo Segundos para ms)
-    const minDelay = config.options?.delayMin ? config.options.delayMin * 1000 : 5000;
-    const maxDelay = config.options?.delayMax ? config.options.delayMax * 1000 : 15000;
-
-    for (let i = 0; i < numbers.length; i++) {
-      const numRaw = numbers[i];
-      let phone = numRaw;
-      let name = '';
+  try {
+    console.log('--- Verificando novas campanhas para processar... ---');
+    const { data: campaigns, error } = await supabase
+      .from('campaigns')
+      .select('*')
+      .in('status', ['PENDING', 'pending', 'scheduled']); // Pega pendentes e agendadas
       
-      // Checa se veio com o delimitador de nome (Ex: 5511999999999|João Silva)
-      if (numRaw.includes('|')) {
-         const parts = numRaw.split('|');
-         phone = parts[0].trim();
-         name = parts.slice(1).join(' ').trim();
-      }
-      
-      // Limpar JID caso a validação do PAPI reclame ou usar como base limpa no Queue
-      phone = phone.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
-      
-      // Lógica de delay individual para cada job na fila (randomização entre min e max)
-      const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-      
-      messageQueue.add({
-        campaignId: campaign.id,
-        userId: campaign.user_id,
-        instanceId: campaign.instance_id_api,
-        numberInfo: { phone, name },
-        messageData: config,
-        delay: i === 0 ? 0 : randomDelay // Primeira mensagem sai na hora, as outras com delay
-      }, {
-        attempts: 3,
-        backoff: 10000,
-        removeOnComplete: true
-      });
+    if (error) {
+       console.error('❌ Erro Supabase ao monitorar:', error.message);
+       return;
     }
 
-    console.log(`✅ Campanha ${campaign.name} enviada para a fila do Bull.`);
+    if (!campaigns?.length) {
+       console.log('Dormindo... (Nenhuma campanha encontrada)');
+       return;
+    }
+
+    for (const campaign of campaigns) {
+      try {
+        // Se estiver agendada, checar se ja passou da hora
+        if (campaign.status === 'scheduled' && campaign.scheduled_at) {
+           if (new Date(campaign.scheduled_at) > new Date()) continue; 
+        }
+
+        console.log(`🚀 Processando Campanha [ID: ${campaign.id}]: ${campaign.name}`);
+        
+        const { error: updateError } = await supabase.from('campaigns').update({ status: 'processing' }).eq('id', campaign.id);
+        
+        if (updateError) {
+           console.error(`❌ Erro ao atualizar status:`, updateError.message);
+           continue;
+        }
+        
+        const numbers = campaign.numbers_list || [];
+        const config = campaign.message_config || {};
+        const minDelay = config.options?.delayMin ? config.options.delayMin * 1000 : 5000;
+        const maxDelay = config.options?.delayMax ? config.options.delayMax * 1000 : 15000;
+
+        console.log(`📦 Adicionando ${numbers.length} números na fila Bull...`);
+
+        for (let i = 0; i < numbers.length; i++) {
+          const numRaw = numbers[i];
+          let phone = numRaw;
+          let name = '';
+          
+          if (numRaw.includes('|')) {
+             const parts = numRaw.split('|');
+             phone = parts[0].trim();
+             name = parts.slice(1).join(' ').trim();
+          }
+          phone = phone.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
+          const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+          
+          messageQueue.add({
+            campaignId: campaign.id,
+            userId: campaign.user_id,
+            instanceId: campaign.instance_id_api,
+            numberInfo: { phone, name },
+            messageData: config,
+            delay: i === 0 ? 0 : randomDelay
+          }, {
+            attempts: 3,
+            backoff: 10000,
+            removeOnComplete: true
+          });
+        }
+        console.log(`✅ Campanha ${campaign.id} agendada na fila com sucesso.`);
+      } catch (innerErr) {
+        console.error(`❌ Falha grave na campanha ${campaign.id}:`, innerErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('❌ ERRO CRÍTICO NO MONITOR:', err.message);
   }
 }
 
-// Iniciar monitoramento a cada 10 segundos
+// Iniciar monitoramento imediato e depois a cada 10 segundos
+monitorCampaigns();
 setInterval(monitorCampaigns, 10000);
 
 app.listen(PORT, () => {
