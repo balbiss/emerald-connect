@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 4000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const VPS_API_URL = process.env.VPS_API_URL || 'https://zap.inoovaweb.com.br';
-const VPS_API_KEY = process.env.VPS_API_KEY || '280896Ab@01733190252';
+const VPS_API_KEY = process.env.VPS_API_KEY || '280896Ab@';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 
 // VALIDAÇÃO CRÍTICA NA INICIALIZAÇÃO
