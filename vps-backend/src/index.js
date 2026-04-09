@@ -238,8 +238,7 @@ messageQueue.process(async (job) => {
     }
 
     const fullUrl = `/api/instances/${instanceId}${endpoint}`;
-    console.log(`[Job ${job.id}] → ${VPS_API_URL}${fullUrl} | JID: ${payload.jid}`);
-    console.log(`[Job ${job.id}] Debug Key: ${VPS_API_KEY.substring(0, 3)}... (Len: ${VPS_API_KEY.length})`);
+    console.log(`[Job ${job.id}] → Envio para ${targetNumber} | Campanha: ${campaignId}`);
     
     const { data } = await api.post(fullUrl, payload, {
       headers: { 'x-api-key': VPS_API_KEY }
