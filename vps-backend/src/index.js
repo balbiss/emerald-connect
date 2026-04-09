@@ -171,11 +171,17 @@ messageQueue.process(async (job) => {
       endpoint = '/send-carousel';
       payload = { 
          ...payload, 
+         title: applyVariables(messageData.text || ''),
+         body: ' ', // Body is required in Baileys
          cards: messageData.carousel.map(card => ({
-            ...card,
+            imageUrl: card.imageUrl || card.mediaUrl, // adapt if needed
             title: applyVariables(card.title),
-            description: applyVariables(card.description),
-            footer: applyVariables(card.footer)
+            body: applyVariables(card.description || card.body),
+            footer: applyVariables(card.footer),
+            buttons: card.buttons ? card.buttons.map(b => ({
+               id: b.id || `btn_${new Date().getTime()}`,
+               title: applyVariables(b.label || b.title)
+            })) : []
          }))
       };
     } else if (messageData.type === 'interactive' && messageData.poll) {
@@ -183,8 +189,8 @@ messageQueue.process(async (job) => {
       payload = { 
          ...payload, 
          name: applyVariables(messageData.poll.question),
-         selectableOptionsCount: messageData.poll.allowMultiple ? messageData.poll.options.length : 1,
-         options: messageData.poll.options.map(o => ({ optionName: applyVariables(o.label) }))
+         selectableCount: messageData.poll.allowMultiple ? messageData.poll.options.length : 1,
+         options: messageData.poll.options.map(o => applyVariables(o.label || o))
       };
     } else if (messageData.type === 'buttons' && messageData.buttons) {
       endpoint = '/send-buttons';
@@ -192,7 +198,7 @@ messageQueue.process(async (job) => {
          ...payload, 
          text: applyVariables(messageData.text),
          buttons: messageData.buttons.map((b, i) => ({
-             type: b.type === 'url' ? 'url' : b.type === 'call' ? 'call' : 'reply',
+             type: b.type === 'url' ? 'cta_url' : b.type === 'call' ? 'cta_call' : 'quick_reply',
              displayText: applyVariables(b.label),
              id: `btn_${i}`,
              ...(b.type === 'url' && { url: b.value }),
@@ -206,7 +212,7 @@ messageQueue.process(async (job) => {
          ...payload, 
          url: messageData.media.url,
          caption: applyVariables(messageData.media.caption),
-         ...(mediaType === 'audio' && { ptt: messageData.media.ptt }),
+         ...(mediaType === 'audio' && { ptt: !!messageData.media.ptt }),
          ...(mediaType === 'document' && { fileName: messageData.media.filename })
       };
     }
