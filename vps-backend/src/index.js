@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 4000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const VPS_API_URL = process.env.VPS_API_URL || 'https://zap.inoovaweb.com.br';
-const VPS_API_KEY = process.env.VPS_API_KEY || '280896Ab@';
+const VPS_API_KEY = process.env.VPS_API_KEY || '280896Ab@01733190252';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 
 // VALIDAÇÃO CRÍTICA NA INICIALIZAÇÃO
@@ -174,12 +174,12 @@ messageQueue.process(async (job) => {
          title: applyVariables(messageData.text || ''),
          body: ' ', // Body is required in Baileys
          cards: messageData.carousel.map(card => ({
-            imageUrl: card.imageUrl || card.mediaUrl, // adapt if needed
+            imageUrl: card.imageUrl || card.mediaUrl,
             title: applyVariables(card.title),
             body: applyVariables(card.description || card.body),
-            footer: applyVariables(card.footer),
+            footer: applyVariables(card.footer || ''),
             buttons: card.buttons ? card.buttons.map(b => ({
-               id: b.id || `btn_${new Date().getTime()}`,
+               id: b.id || `btn_${Math.random().toString(36).substr(2, 9)}`,
                title: applyVariables(b.label || b.title)
             })) : []
          }))
@@ -189,7 +189,7 @@ messageQueue.process(async (job) => {
       payload = { 
          ...payload, 
          name: applyVariables(messageData.poll.question),
-         selectableCount: messageData.poll.allowMultiple ? messageData.poll.options.length : 1,
+         selectableCount: messageData.poll.allowMultiple ? 0 : 1, // 0 = multiple, 1 = single per doc
          options: messageData.poll.options.map(o => applyVariables(o.label || o))
       };
     } else if (messageData.type === 'buttons' && messageData.buttons) {
@@ -197,10 +197,11 @@ messageQueue.process(async (job) => {
       payload = { 
          ...payload, 
          text: applyVariables(messageData.text),
+         footer: applyVariables(messageData.footer || ''),
          buttons: messageData.buttons.map((b, i) => ({
              type: b.type === 'url' ? 'cta_url' : b.type === 'call' ? 'cta_call' : 'quick_reply',
              displayText: applyVariables(b.label),
-             id: `btn_${i}`,
+             id: b.id || `btn_${i}`,
              ...(b.type === 'url' && { url: b.value }),
              ...(b.type === 'call' && { phoneNumber: b.value })
          }))
