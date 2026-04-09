@@ -34,7 +34,7 @@ import { toast } from "sonner";
 
 export default function Campaigns() {
   const [step, setStep] = useState<"config" | "build">("config");
-  const { campaigns, loading: loadingCampaigns } = useCampaigns();
+  const { campaigns, loading: loadingCampaigns, refresh: refreshCampaigns } = useCampaigns();
   const { instances, loading: loadingInstances } = useInstances();
   const { logs } = useReports(); // For contact count proxy
   const { 
@@ -78,7 +78,11 @@ export default function Campaigns() {
     if (selectedCampaigns.length === 0) return;
     if (confirm(`Deseja excluir as ${selectedCampaigns.length} campanhas selecionadas?`)) {
        const ok = await bulkDeleteCampaigns(selectedCampaigns);
-       if (ok) setSelectedCampaigns([]);
+       if (ok) {
+          setSelectedCampaigns([]);
+          // Force refresh logic in case realtime is slow
+          refreshCampaigns();
+       }
     }
   };
 
@@ -90,7 +94,8 @@ export default function Campaigns() {
     if (completedIds.length === 0) return toast.info("Nenhuma campanha concluída para limpar.");
     
     if (confirm(`Deseja limpar ${completedIds.length} campanhas concluídas do histórico?`)) {
-       await bulkDeleteCampaigns(completedIds);
+       const ok = await bulkDeleteCampaigns(completedIds);
+       if (ok) refreshCampaigns();
     }
   };
 
@@ -148,6 +153,7 @@ export default function Campaigns() {
        setScheduledAt("");
        setManualContacts("");
        setListType("all");
+       refreshCampaigns(); // Atualiza a lista na hora
     }
   };
 
@@ -405,7 +411,10 @@ export default function Campaigns() {
                               variant="outline" 
                               size="sm" 
                               className="h-8 gap-2 border-amber-500/30 text-amber-500 hover:bg-amber-500/10 font-bold text-[10px] uppercase tracking-wider transition-all"
-                              onClick={() => pauseCampaign(c.id)}
+                              onClick={async () => {
+                                 await pauseCampaign(c.id);
+                                 refreshCampaigns();
+                              }}
                            >
                               <Pause className="h-3.5 w-3.5" /> Pausar
                            </Button>
@@ -415,7 +424,10 @@ export default function Campaigns() {
                               variant="outline" 
                               size="sm" 
                               className="h-8 gap-2 border-primary/30 text-primary hover:bg-primary/10 font-bold text-[10px] uppercase tracking-wider transition-all"
-                              onClick={() => resumeCampaign(c.id)}
+                              onClick={async () => {
+                                 await resumeCampaign(c.id);
+                                 refreshCampaigns();
+                              }}
                            >
                               <Play className="h-3.5 w-3.5" /> Retomar
                            </Button>
@@ -432,7 +444,10 @@ export default function Campaigns() {
                            isPaused ? "Pausada" :
                            isCompleted ? "Concluído" : "Agendado"}
                         </Badge>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-40 hover:opacity-100" onClick={() => bulkDeleteCampaigns([c.id])}>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-40 hover:opacity-100" onClick={async () => {
+                          const ok = await bulkDeleteCampaigns([c.id]);
+                          if (ok) refreshCampaigns();
+                        }}>
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>

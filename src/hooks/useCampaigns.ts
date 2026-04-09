@@ -44,7 +44,17 @@ export function useCampaigns() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "campaigns" },
-        () => fetchCampaigns()
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            setCampaigns(prev => [payload.new as Campaign, ...prev]);
+          } else if (payload.eventType === 'UPDATE') {
+            setCampaigns(prev => prev.map(c => 
+              c.id === payload.new.id ? { ...c, ...payload.new } : c
+            ));
+          } else if (payload.eventType === 'DELETE') {
+            setCampaigns(prev => prev.filter(c => c.id !== payload.old.id));
+          }
+        }
       )
       .subscribe();
 
