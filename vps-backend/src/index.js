@@ -251,8 +251,10 @@ messageQueue.process(async (job) => {
         status: 'SENT'
       }]);
 
-      // IMPORTANTE: Incrementar o contador de envios na campanha para a barra de progresso do frontend
-      await supabase.rpc('increment_campaign_sent_count', { campaign_id: campaignId });
+       // 3. Incrementar o contador de envios na campanha para a barra de progresso do frontend
+       if (data.messageId) {
+          await supabase.rpc('increment_campaign_sent_count', { campaign_id: campaignId });
+       }
     }
     
     return data;
