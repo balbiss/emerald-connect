@@ -148,6 +148,24 @@ messageQueue.process(async (job) => {
   console.log(`[Job ${job.id}] Enviando para: ${targetNumber} (${targetName}) - Campanha: ${campaignId}`);
 
   try {
+    // 0. Verificar se a campanha ainda está ativa (Suporte a PAUSA)
+    const { data: campaign, error: cError } = await supabase
+      .from('campaigns')
+      .select('status, sent_count')
+      .eq('id', campaignId)
+      .single();
+
+    if (cError || !campaign) {
+      console.log(`[Job ${job.id}] Campanha ${campaignId} não encontrada ou erro. Pulando.`);
+      return;
+    }
+
+    if (campaign.status === 'paused') {
+      console.log(`[Job ${job.id}] Campanha ${campaignId} PAUSADA. Interrompendo este job.`);
+      // Nota: O monitor de campanhas cuidará da retomada recriando a fila a partir do sent_count.
+      return;
+    }
+
     // 1. Aguardar delay se configurado (Randomização/Delay entre mensagens)
     if (delay > 0) {
       console.log(`[Job ${job.id}] Aguardando delay de ${delay}ms...`);
@@ -169,10 +187,13 @@ messageQueue.process(async (job) => {
        payload = { ...payload, text: applyVariables(messageData.text) };
     } else if (messageData.type === 'carousel' && messageData.carousel) {
       endpoint = '/send-carousel';
+      // PAPI v1.6 exige title e body no nível superior. Usamos o texto da campanha ou o título do primeiro card como fallback.
+      const firstCard = messageData.carousel[0] || {};
       payload = { 
          ...payload, 
-         title: applyVariables(messageData.text || ''),
-         body: ' ', // Body is required in Baileys
+         title: applyVariables(messageData.text || firstCard.title || 'Confira as ofertas!'),
+         body: applyVariables(messageData.body || firstCard.description || ' '),
+         footer: applyVariables(messageData.footer || ' '),
          cards: messageData.carousel.map(card => ({
             imageUrl: card.imageUrl || card.mediaUrl,
             title: applyVariables(card.title),
@@ -213,8 +234,8 @@ messageQueue.process(async (job) => {
          ...payload, 
          url: messageData.media.url,
          caption: applyVariables(messageData.media.caption),
-         ...(mediaType === 'audio' && { ptt: !!messageData.media.ptt }),
-         ...(mediaType === 'document' && { fileName: messageData.media.filename })
+         ...(mediaType === 'audio' && { ptt: true }), // Sempre usar PTT para áudio na v1.6 por padrão
+         ...(mediaType === 'document' && { fileName: messageData.media.filename || 'documento' })
       };
     }
 
@@ -287,13 +308,24 @@ async function monitorCampaigns() {
         
         const numbers = campaign.numbers_list || [];
         const config = campaign.message_config || {};
+        const sentCount = campaign.sent_count || 0;
+        
+        // SUPORTE A RETOMADA: Começar do índice correto
+        const numbersToProcess = numbers.slice(sentCount);
+        
         const minDelay = config.options?.delayMin ? config.options.delayMin * 1000 : 5000;
         const maxDelay = config.options?.delayMax ? config.options.delayMax * 1000 : 15000;
 
-        console.log(`📦 Adicionando ${numbers.length} números na fila Bull...`);
+        if (numbersToProcess.length === 0) {
+           console.log(`✅ Campanha ${campaign.id} já concluída ou sem novos números.`);
+           await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaign.id);
+           continue;
+        }
 
-        for (let i = 0; i < numbers.length; i++) {
-          const numRaw = numbers[i];
+        console.log(`📦 Adicionando ${numbersToProcess.length} números na fila Bull... (Iniciando de ${sentCount})`);
+
+        for (let i = 0; i < numbersToProcess.length; i++) {
+          const numRaw = numbersToProcess[i];
           let phone = numRaw;
           let name = '';
           

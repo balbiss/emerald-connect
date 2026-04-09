@@ -20,7 +20,10 @@ import {
   Layers,
   Zap,
   Smartphone,
-  Settings
+  Settings,
+  Pause,
+  Play,
+  Trash2
 } from "lucide-react";
 import { useCampaigns, useCampaignActions } from "@/hooks/useCampaigns";
 import { useInstances } from "@/hooks/useInstances";
@@ -34,7 +37,16 @@ export default function Campaigns() {
   const { campaigns, loading: loadingCampaigns } = useCampaigns();
   const { instances, loading: loadingInstances } = useInstances();
   const { logs } = useReports(); // For contact count proxy
-  const { createCampaign, isCreating } = useCampaignActions();
+  const { 
+    createCampaign, 
+    pauseCampaign, 
+    resumeCampaign, 
+    bulkDeleteCampaigns, 
+    isCreating 
+  } = useCampaignActions();
+  
+  // Selection State for Bulk Actions
+  const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
 
   const uniqueContactsCount = new Set(logs.map(l => l.remote_jid)).size;
 
@@ -55,6 +67,32 @@ export default function Campaigns() {
         setInstanceId(instances[0].id);
      }
   }, [instances]);
+
+  const toggleSelect = (id: string) => {
+    setSelectedCampaigns(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedCampaigns.length === 0) return;
+    if (confirm(`Deseja excluir as ${selectedCampaigns.length} campanhas selecionadas?`)) {
+       const ok = await bulkDeleteCampaigns(selectedCampaigns);
+       if (ok) setSelectedCampaigns([]);
+    }
+  };
+
+  const handleClearCompleted = async () => {
+    const completedIds = campaigns
+      .filter(c => c.status === 'completed' || c.status === 'COMPLETED')
+      .map(c => c.id);
+    
+    if (completedIds.length === 0) return toast.info("Nenhuma campanha concluída para limpar.");
+    
+    if (confirm(`Deseja limpar ${completedIds.length} campanhas concluídas do histórico?`)) {
+       await bulkDeleteCampaigns(completedIds);
+    }
+  };
 
   const handleActivate = async () => {
     if (!name) return toast.error("Informe um nome para a campanha");
@@ -275,9 +313,29 @@ export default function Campaigns() {
           <h3 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
             <Clock className="h-5 w-5 text-primary" /> Histórico Operacional
           </h3>
-          <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-bold tracking-wider px-3 py-1">
-            {campaigns.filter(c => ["PROCESSING", "processing"].includes(c.status)).length} Em Andamento
-          </Badge>
+          <div className="flex items-center gap-3">
+             {selectedCampaigns.length > 0 && (
+                <Button 
+                   variant="destructive" 
+                   size="sm" 
+                   className="h-8 gap-2 animate-fade-in font-bold text-[10px] uppercase tracking-wider"
+                   onClick={handleBulkDelete}
+                >
+                   <Trash2 className="h-3.5 w-3.5" /> Excluir ({selectedCampaigns.length})
+                </Button>
+             )}
+             <Button 
+                variant="outline" 
+                size="sm" 
+                className="h-8 gap-2 border-border/40 font-bold text-[10px] uppercase tracking-wider"
+                onClick={handleClearCompleted}
+             >
+                Limpar Concluídos
+             </Button>
+             <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20 text-[10px] uppercase font-bold tracking-wider px-3 py-1">
+               {campaigns.filter(c => ["PROCESSING", "processing"].includes(c.status)).length} Em Andamento
+             </Badge>
+          </div>
         </div>
         
         <div className="grid grid-cols-1 gap-4">
@@ -293,18 +351,34 @@ export default function Campaigns() {
           ) : (
             campaigns.map((c, i) => {
               const progress = c.total_numbers > 0 ? ((c.sent_count || 0) / c.total_numbers) * 100 : 0;
-              const isProcessing = ["PENDING", "PROCESSING", "pending", "processing"].includes(c.status);
+              const isProcessing = ["PROCESSING", "processing"].includes(c.status);
+              const isPending = ["PENDING", "pending"].includes(c.status);
+              const isPaused = c.status === "paused";
               const isCompleted = c.status === "COMPLETED" || c.status === "completed";
+              const isSelected = selectedCampaigns.includes(c.id);
               
               return (
-                <div key={c.id} className="bg-secondary/30 rounded-2xl p-6 border border-border/40 hover:border-border transition-colors animate-fade-in group">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div key={c.id} className={`bg-secondary/30 rounded-2xl p-6 border transition-all animate-fade-in group relative ${
+                  isSelected ? "border-primary/50 bg-primary/5 shadow-lg shadow-primary/5" : "border-border/40 hover:border-border"
+                }`}>
+                  {/* Selection Checkbox */}
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2">
+                     <input 
+                        type="checkbox" 
+                        checked={isSelected}
+                        onChange={() => toggleSelect(c.id)}
+                        className="h-4 w-4 rounded border-border/50 bg-background accent-primary cursor-pointer"
+                     />
+                  </div>
+
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pl-8">
                     <div className="flex items-center gap-4">
                       <div className={`h-12 w-12 rounded-2xl flex items-center justify-center shadow-inner ${
-                        isProcessing ? "bg-primary/10" : isCompleted ? "bg-info/10" : "bg-warning/10"
+                        isProcessing ? "bg-primary/10" : isCompleted ? "bg-info/10" : isPaused ? "bg-amber-500/10" : "bg-warning/10"
                       }`}>
                         {isProcessing ? <Send className="h-5 w-5 text-primary animate-pulse" /> :
                          isCompleted ? <CheckCircle2 className="h-5 w-5 text-info" /> : 
+                         isPaused ? <Pause className="h-5 w-5 text-amber-500" /> :
                          <Clock className="h-5 w-5 text-warning" />}
                       </div>
                       <div className="min-w-0">
@@ -325,24 +399,48 @@ export default function Campaigns() {
                       </div>
                       
                       <div className="flex items-center gap-3">
+                        {/* Pause/Resume Buttons */}
+                        {isProcessing && (
+                           <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-8 gap-2 border-amber-500/30 text-amber-500 hover:bg-amber-500/10 font-bold text-[10px] uppercase tracking-wider transition-all"
+                              onClick={() => pauseCampaign(c.id)}
+                           >
+                              <Pause className="h-3.5 w-3.5" /> Pausar
+                           </Button>
+                        )}
+                        {isPaused && (
+                           <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-8 gap-2 border-primary/30 text-primary hover:bg-primary/10 font-bold text-[10px] uppercase tracking-wider transition-all"
+                              onClick={() => resumeCampaign(c.id)}
+                           >
+                              <Play className="h-3.5 w-3.5" /> Retomar
+                           </Button>
+                        )}
+
                         <Badge className={`${
                           isProcessing ? "bg-primary/10 text-primary border-primary/20" : 
                           isCompleted ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" : 
+                          isPaused ? "bg-amber-500/10 text-amber-500 border-amber-500/20" :
                           "bg-amber-500/10 text-amber-500 border-amber-500/20"
                         } px-4 py-1 font-bold text-[10px] uppercase tracking-wider`}>
-                          {["PROCESSING", "processing"].includes(c.status) ? "Enviando" : 
-                           ["PENDING", "pending"].includes(c.status) ? "Na Fila" : 
+                          {isProcessing ? "Enviando" : 
+                           isPending ? "Na Fila" : 
+                           isPaused ? "Pausada" :
                            isCompleted ? "Concluído" : "Agendado"}
                         </Badge>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-40 hover:opacity-100">
-                          <Settings className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg opacity-40 hover:opacity-100" onClick={() => bulkDeleteCampaigns([c.id])}>
+                          <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
                   </div>
                   
                   {/* Progress bar */}
-                  <div className="space-y-2 lg:pl-16">
+                  <div className="space-y-2 lg:pl-24 pr-4">
                     <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
                       <span>Progresso Instantâneo</span>
                       <span className={isProcessing ? "text-primary flex items-center gap-1" : ""}>
@@ -354,7 +452,7 @@ export default function Campaigns() {
                       <div 
                         className={`h-full rounded-full transition-all duration-1000 ease-in-out ${
                           isProcessing ? "gradient-emerald shadow-[0_0_12px_rgba(37,211,102,0.4)]" : 
-                          c.status === "COMPLETED" ? "bg-info" : "bg-warning/40"
+                          isCompleted ? "bg-emerald-500" : isPaused ? "bg-amber-500/40" : "bg-warning/40"
                         }`} 
                         style={{ width: `${Math.min(progress, 100)}%` }} 
                       />

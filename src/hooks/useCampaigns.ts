@@ -127,5 +127,53 @@ export function useCampaignActions() {
     }
   };
 
-  return { createCampaign, isCreating };
+  const pauseCampaign = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("campaigns")
+        .update({ status: 'paused' })
+        .eq('id', id);
+
+      if (error) throw error;
+      toast.success("Campanha pausada com sucesso!");
+      return true;
+    } catch (error: any) {
+      toast.error("Erro ao pausar: " + error.message);
+      return false;
+    }
+  };
+
+  const resumeCampaign = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from("campaigns")
+        .update({ status: 'pending' })
+        .eq('id', id);
+
+      if (error) throw error;
+      toast.success("Campanha retomada (enviada para a fila)!");
+      return true;
+    } catch (error: any) {
+      toast.error("Erro ao retomar: " + error.message);
+      return false;
+    }
+  };
+
+  const bulkDeleteCampaigns = async (ids: string[]) => {
+    try {
+      const { error } = await supabase
+        .from("campaigns")
+        .delete()
+        .in('id', ids);
+
+      if (error) throw error;
+      toast.success(`${ids.length} campanha(s) removida(s) com sucesso!`);
+      return true;
+    } catch (error: any) {
+      toast.error("Erro ao excluir: " + error.message);
+      return false;
+    }
+  };
+
+  return { createCampaign, pauseCampaign, resumeCampaign, bulkDeleteCampaigns, isCreating };
 }
