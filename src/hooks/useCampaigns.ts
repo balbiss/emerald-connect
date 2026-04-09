@@ -5,7 +5,7 @@ import { toast } from "sonner";
 export interface Campaign {
   id: string;
   name: string;
-  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'SCHEDULED' | 'pending' | 'processing' | 'completed' | 'scheduled';
+  status: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'SCHEDULED' | 'pending' | 'processing' | 'completed' | 'scheduled' | 'paused';
   total_numbers: number;
   scheduled_at: string;
   created_at: string;
@@ -18,27 +18,16 @@ export function useCampaigns() {
 
   const fetchCampaigns = async () => {
     try {
+      // Busca campanhas com sent_count diretamente do banco (campo atualizado pelo RPC)
+      // Não usa message_logs para contar (evita N queries lentas e inconsistência de progresso)
       const { data: campaignsData, error: campaignsError } = await supabase
         .from("campaigns")
-        .select("*")
+        .select("id, name, status, total_numbers, scheduled_at, created_at, sent_count")
         .order("created_at", { ascending: false });
 
       if (campaignsError) throw campaignsError;
 
-      const campaignsWithCounts = await Promise.all((campaignsData || []).map(async (c) => {
-        try {
-          const { count } = await supabase
-            .from("message_logs")
-            .select("*", { count: "exact", head: true })
-            .eq("campaign_id", c.id);
-          
-          return { ...c, sent_count: count || 0 };
-        } catch (e) {
-          return { ...c, sent_count: 0 };
-        }
-      }));
-
-      setCampaigns(campaignsWithCounts);
+      setCampaigns(campaignsData || []);
     } catch (error: any) {
       console.error("Error fetching campaigns:", error);
       toast.error("Erro ao carregar campanhas: " + error.message);

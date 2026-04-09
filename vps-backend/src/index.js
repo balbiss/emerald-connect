@@ -127,6 +127,16 @@ app.post('/api-proxy/instances/:id/webhook', async (req, res) => {
   }
 });
 
+// Lista todas as instâncias
+app.get('/api-proxy/instances', async (req, res) => {
+  try {
+    const { data } = await api.get('/api/instances');
+    res.json(data);
+  } catch (error) {
+    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal Error' });
+  }
+});
+
 // Deletar Instância
 app.delete('/api-proxy/instances/:id', async (req, res) => {
   try {
@@ -137,57 +147,44 @@ app.delete('/api-proxy/instances/:id', async (req, res) => {
   }
 });
 
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // --- 2. WORKER DE DISPARO (SUPABASE -> FILA -> API) ---
 
 // Processador da fila
 messageQueue.process(async (job) => {
-  const { campaignId, userId, instanceId, numberInfo, messageData, delay } = job.data;
+  const { campaignId, userId, instanceId, numberInfo, messageData, delay, isLast } = job.data;
   const targetNumber = numberInfo.phone;
   const targetName = numberInfo.name || '';
   
   console.log(`[Job ${job.id}] Enviando para: ${targetNumber} (${targetName}) - Campanha: ${campaignId}`);
 
   try {
-    // 0. Verificar se a campanha ainda está ativa (Suporte a PAUSA)
     const { data: campaign, error: cError } = await supabase
       .from('campaigns')
-      .select('status, sent_count')
+      .select('status, sent_count, numbers_list')
       .eq('id', campaignId)
       .single();
 
-    if (cError || !campaign) {
-      console.log(`[Job ${job.id}] Campanha ${campaignId} não encontrada ou erro. Pulando.`);
-      return;
-    }
+    if (cError || !campaign || campaign.status === 'paused') return;
 
-    if (campaign.status === 'paused') {
-      console.log(`[Job ${job.id}] Campanha ${campaignId} PAUSADA. Interrompendo este job.`);
-      // Nota: O monitor de campanhas cuidará da retomada recriando a fila a partir do sent_count.
-      return;
-    }
+    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
 
-    // 1. Aguardar delay se configurado (Randomização/Delay entre mensagens)
-    if (delay > 0) {
-      console.log(`[Job ${job.id}] Aguardando delay de ${delay}ms...`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-
-    // Função utilitária para substituir {{nome}} e similares
     const applyVariables = (text) => {
       if (!text || typeof text !== 'string') return text;
       return text.replace(/\{\{nome\}\}/gi, targetName || 'Cliente').replace(/\{\{numero\}\}/gi, targetNumber);
     };
 
-    // 2. Escolher endpoint e payload baseado na Pastorini API v1.6
     let endpoint = '/send-text';
     let payload = { jid: `${targetNumber}@s.whatsapp.net` };
     
-    // Suporte a diferentes tipos de mensagens da PAPI v1.6 aplicando as variáveis
     if (messageData.type === 'text' && messageData.text) {
        payload = { ...payload, text: applyVariables(messageData.text) };
     } else if (messageData.type === 'carousel' && messageData.carousel) {
       endpoint = '/send-carousel';
-      // PAPI v1.6 exige title e body no nível superior. Usamos o texto da campanha ou o título do primeiro card como fallback.
       const firstCard = messageData.carousel[0] || {};
       payload = { 
          ...payload, 
@@ -210,7 +207,7 @@ messageQueue.process(async (job) => {
       payload = { 
          ...payload, 
          name: applyVariables(messageData.poll.question),
-         selectableCount: messageData.poll.allowMultiple ? 0 : 1, // 0 = multiple, 1 = single per doc
+         selectableCount: messageData.poll.allowMultiple ? 0 : 1,
          options: messageData.poll.options.map(o => applyVariables(o.label || o))
       };
     } else if (messageData.type === 'buttons' && messageData.buttons) {
@@ -220,11 +217,12 @@ messageQueue.process(async (job) => {
          text: applyVariables(messageData.text),
          footer: applyVariables(messageData.footer || ''),
          buttons: messageData.buttons.map((b, i) => ({
-             type: b.type === 'url' ? 'cta_url' : b.type === 'call' ? 'cta_call' : 'quick_reply',
+             type: b.type === 'url' ? 'cta_url' : b.type === 'call' ? 'cta_call' : b.type === 'copy' ? 'cta_copy' : 'quick_reply',
              displayText: applyVariables(b.label),
              id: b.id || `btn_${i}`,
              ...(b.type === 'url' && { url: b.value }),
-             ...(b.type === 'call' && { phoneNumber: b.value })
+             ...(b.type === 'call' && { phoneNumber: b.value }),
+             ...(b.type === 'copy' && { copyCode: b.value })
          }))
       };
     } else if (messageData.type === 'media' && messageData.media) {
@@ -234,15 +232,16 @@ messageQueue.process(async (job) => {
          ...payload, 
          url: messageData.media.url,
          caption: applyVariables(messageData.media.caption),
-         ...(mediaType === 'audio' && { ptt: true }), // Sempre usar PTT para áudio na v1.6 por padrão
+         ...(mediaType === 'audio' && { ptt: true }),
          ...(mediaType === 'document' && { fileName: messageData.media.filename || 'documento' })
       };
     }
 
+    console.log(`[Job ${job.id}] Endpoint: ${endpoint} | Payload JID: ${payload.jid}`);
     const { data } = await api.post(`/api/instances/${instanceId}${endpoint}`, payload);
     
     if (data.success) {
-      // Gravar log de sucesso
+      // Salvar log de sucesso
       await supabase.from('message_logs').insert([{
         user_id: userId,
         campaign_id: campaignId,
@@ -250,121 +249,106 @@ messageQueue.process(async (job) => {
         message_id_api: data.messageId,
         status: 'SENT'
       }]);
-
-       // 3. Incrementar o contador de envios na campanha para a barra de progresso do frontend
-       if (data.messageId) {
-          await supabase.rpc('increment_campaign_sent_count', { campaign_id: campaignId });
-       }
+      // Incrementar contador via RPC atômica
+      await supabase.rpc('increment_campaign_sent_count', { campaign_id: campaignId });
+      // Marcar como concluída no último job
+      if (isLast) {
+        await supabase.from('campaigns')
+          .update({ status: 'completed' })
+          .eq('id', campaignId)
+          .not('status', 'eq', 'paused'); // Não sobrescrever se foi pausada
+        console.log(`✅ Campanha ${campaignId} CONCLUÍDA!`);
+      }
+    } else {
+      console.warn(`[Job ${job.id}] API retornou erro:`, data);
     }
-    
     return data;
   } catch (error) {
-    console.error(`Erro no envio para ${targetNumber}:`, error.message);
-    
-    await supabase.from('message_logs').insert([{
+    console.error(`[Job ${job.id}] Erro no envio para ${targetNumber}:`, error.response?.data || error.message);
+    // Salvar log de erro
+    try {
+      await supabase.from('message_logs').insert([{
         user_id: userId,
         campaign_id: campaignId,
         remote_jid: `${targetNumber}@s.whatsapp.net`,
         status: 'ERROR',
         error_message: error.response?.data?.error || error.message
-    }]);
-
+      }]);
+    } catch (logErr) {
+      console.error('Erro ao salvar log de falha:', logErr.message);
+    }
     throw error;
   }
 });
 
-// Monitor de Campanhas (Vigilante)
 async function monitorCampaigns() {
   try {
-    console.log('--- Verificando novas campanhas para processar... ---');
     const { data: campaigns, error } = await supabase
       .from('campaigns')
       .select('*')
-      .in('status', ['PENDING', 'pending', 'scheduled']); // Pega pendentes e agendadas
+      .in('status', ['PENDING', 'pending', 'scheduled']);
       
-    if (error) {
-       console.error('❌ Erro Supabase ao monitorar:', error.message);
-       return;
-    }
-
-    if (!campaigns?.length) {
-       console.log('Dormindo... (Nenhuma campanha encontrada)');
-       return;
-    }
+    if (error || !campaigns?.length) return;
 
     for (const campaign of campaigns) {
-      try {
-        // Se estiver agendada, checar se ja passou da hora
-        if (campaign.status === 'scheduled' && campaign.scheduled_at) {
-           if (new Date(campaign.scheduled_at) > new Date()) continue; 
-        }
+      if (campaign.status === 'scheduled' && new Date(campaign.scheduled_at) > new Date()) continue;
 
-        console.log(`🚀 Processando Campanha [ID: ${campaign.id}]: ${campaign.name}`);
-        
-        const { error: updateError } = await supabase.from('campaigns').update({ status: 'processing' }).eq('id', campaign.id);
-        
-        if (updateError) {
-           console.error(`❌ Erro ao atualizar status:`, updateError.message);
-           continue;
-        }
-        
-        const numbers = campaign.numbers_list || [];
-        const config = campaign.message_config || {};
-        const sentCount = campaign.sent_count || 0;
-        
-        // SUPORTE A RETOMADA: Começar do índice correto
-        const numbersToProcess = numbers.slice(sentCount);
-        
-        const minDelay = config.options?.delayMin ? config.options.delayMin * 1000 : 5000;
-        const maxDelay = config.options?.delayMax ? config.options.delayMax * 1000 : 15000;
+      const { data: lock, error: lockErr } = await supabase
+        .from('campaigns')
+        .update({ status: 'processing', updated_at: new Date().toISOString() })
+        .eq('id', campaign.id)
+        .eq('status', campaign.status)
+        .select();
 
-        if (numbersToProcess.length === 0) {
-           console.log(`✅ Campanha ${campaign.id} já concluída ou sem novos números.`);
-           await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaign.id);
-           continue;
-        }
+      if (lockErr || !lock?.length) continue;
 
-        console.log(`📦 Adicionando ${numbersToProcess.length} números na fila Bull... (Iniciando de ${sentCount})`);
+      const numbers = campaign.numbers_list || [];
+      const sentCount = campaign.sent_count || 0;
+      const numbersToProcess = numbers.slice(sentCount);
 
-        for (let i = 0; i < numbersToProcess.length; i++) {
-          const numRaw = numbersToProcess[i];
-          let phone = numRaw;
-          let name = '';
-          
-          if (numRaw.includes('|')) {
-             const parts = numRaw.split('|');
-             phone = parts[0].trim();
-             name = parts.slice(1).join(' ').trim();
-          }
-          phone = phone.replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
-          const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-          
-          messageQueue.add({
-            campaignId: campaign.id,
-            userId: campaign.user_id,
-            instanceId: campaign.instance_id_api,
-            numberInfo: { phone, name },
-            messageData: config,
-            delay: i === 0 ? 0 : randomDelay
-          }, {
-            attempts: 3,
-            backoff: 10000,
-            removeOnComplete: true
-          });
-        }
-        console.log(`✅ Campanha ${campaign.id} agendada na fila com sucesso.`);
-      } catch (innerErr) {
-        console.error(`❌ Falha grave na campanha ${campaign.id}:`, innerErr.message);
+      if (numbersToProcess.length === 0) {
+         await supabase.from('campaigns').update({ status: 'completed' }).eq('id', campaign.id);
+         continue;
       }
+
+      const config = campaign.message_config || {};
+      const minDelayMs = (config.options?.delayMin || 5) * 1000;
+      const maxDelayMs = (config.options?.delayMax || 15) * 1000;
+      console.log(`📦 [${campaign.name}] Enfileirando ${numbersToProcess.length} números. Delay: ${minDelayMs/1000}s-${maxDelayMs/1000}s`);
+
+      for (let i = 0; i < numbersToProcess.length; i++) {
+        const numRaw = numbersToProcess[i];
+        const parts = numRaw.split('|');
+        const phone = parts[0].replace('@s.whatsapp.net', '').replace(/[^0-9]/g, '');
+        const name = parts[1] || '';
+        
+        if (!phone || phone.length < 8) {
+          console.warn(`⚠️ Número inválido ignorado: "${numRaw}"`);
+          continue;
+        }
+        
+        const randomDelay = i === 0 ? 0 : Math.floor(Math.random() * (maxDelayMs - minDelayMs + 1)) + minDelayMs;
+        
+        messageQueue.add({
+          campaignId: campaign.id,
+          userId: campaign.user_id,
+          instanceId: campaign.instance_id_api,
+          numberInfo: { phone, name },
+          messageData: config,
+          delay: randomDelay,
+          isLast: i === numbersToProcess.length - 1
+        }, { attempts: 3, backoff: 10000, removeOnComplete: true });
+      }
+      console.log(`✅ Campanha [${campaign.id}] enfileirada com sucesso.`);
     }
   } catch (err) {
     console.error('❌ ERRO CRÍTICO NO MONITOR:', err.message);
   }
 }
 
-// Iniciar monitoramento imediato e depois a cada 10 segundos
+// Iniciar monitoramento imediatamente e depois a cada 15 segundos
 monitorCampaigns();
-setInterval(monitorCampaigns, 10000);
+setInterval(monitorCampaigns, 15000);
 
 app.listen(PORT, () => {
   console.log(`Emerald VPS Backend rodando na porta ${PORT}`);

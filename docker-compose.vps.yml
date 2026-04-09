@@ -12,7 +12,7 @@ services:
       - inoovaweb
 
   ia-disparo-service:
-    image: emerald-connect-ia-disparo-service:latest
+    image: emerald-connect-ia-disparo-service:v1.1
     build: 
       context: ./vps-backend
     deploy:
@@ -36,7 +36,7 @@ services:
       - inoovaweb
 
   ia-disparo-frontend:
-    image: emerald-connect-ia-disparo-frontend:latest
+    image: emerald-connect-ia-disparo-frontend:v1.1
     build:
       context: .
       dockerfile: Dockerfile
