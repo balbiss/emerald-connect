@@ -179,7 +179,7 @@ messageQueue.process(async (job) => {
     };
 
     let endpoint = '/send-text';
-    let payload = { jid: `${targetNumber}@s.whatsapp.net` };
+    let payload = { jid: `${targetNumber}@s.whatsapp.net`, validateNumber: false };
     
     if (messageData.type === 'text' && messageData.text) {
        payload = { ...payload, text: applyVariables(messageData.text) };
@@ -237,8 +237,9 @@ messageQueue.process(async (job) => {
       };
     }
 
-    console.log(`[Job ${job.id}] Endpoint: ${endpoint} | Payload JID: ${payload.jid}`);
-    const { data } = await api.post(`/api/instances/${instanceId}${endpoint}`, payload);
+    const fullUrl = `/api/instances/${instanceId}${endpoint}`;
+    console.log(`[Job ${job.id}] → ${VPS_API_URL}${fullUrl} | JID: ${payload.jid}`);
+    const { data } = await api.post(fullUrl, payload);
     
     if (data.success) {
       // Salvar log de sucesso
@@ -302,6 +303,22 @@ async function monitorCampaigns() {
 
       if (lockErr || !lock?.length) continue;
 
+      // BUSCAR O ID REAL DA INSTÂNCIA NA API PASTORINI
+      // campaign.instance_id_api guarda o UUID do Supabase, precisamos do ID da API (ex: barberflow-4518)
+      let realInstanceId = campaign.instance_id_api;
+      const { data: instance, error: instErr } = await supabase
+        .from('whatsapp_instances')
+        .select('instance_id_api')
+        .eq('id', campaign.instance_id_api)
+        .single();
+
+      if (instance?.instance_id_api) {
+        realInstanceId = instance.instance_id_api;
+        console.log(`🔗 Instância mapeada: ${campaign.instance_id_api} → ${realInstanceId}`);
+      } else {
+        console.warn(`⚠️ Instância ${campaign.instance_id_api} não encontrada no banco, usando valor direto.`);
+      }
+
       const numbers = campaign.numbers_list || [];
       const sentCount = campaign.sent_count || 0;
       const numbersToProcess = numbers.slice(sentCount);
@@ -332,7 +349,7 @@ async function monitorCampaigns() {
         messageQueue.add({
           campaignId: campaign.id,
           userId: campaign.user_id,
-          instanceId: campaign.instance_id_api,
+          instanceId: realInstanceId, // USA O ID REAL DA API (ex: barberflow-4518)
           numberInfo: { phone, name },
           messageData: config,
           delay: randomDelay,
