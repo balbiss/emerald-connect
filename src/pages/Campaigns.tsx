@@ -350,7 +350,7 @@ export default function Campaigns() {
              </div>
           ) : (
             campaigns.map((c, i) => {
-              const progress = c.total_numbers > 0 ? ((c.sent_count || 0) / c.total_numbers) * 100 : 0;
+              const progress = c.total_numbers > 0 ? Math.min(100, ((c.sent_count || 0) / c.total_numbers) * 100) : 0;
               const isProcessing = ["PROCESSING", "processing"].includes(c.status);
               const isPending = ["PENDING", "pending"].includes(c.status);
               const isPaused = c.status === "paused";
