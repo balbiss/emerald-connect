@@ -29,7 +29,7 @@ services:
       - REDIS_URL=redis://redis:6379
       - PORT=4000
       - SUPABASE_URL=https://odkoigujqlxudhzriusv.supabase.co
-      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ka29pZ3VqcWx4dWRoenJpdXN2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ1Nzg3MDYsImV4cCI6MjA5MDE1NDcwNn0.dnVnzzcn1TYxlN3XKjluvvaGEGmAhVUjKqfkSAZeYh8
+      - SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9ka29pZ3VqcWx4dWRoenJpdXN2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3NDU3ODcwNiwiZXhwIjoyMDkwMTU0NzA2fQ.R3qUb0PE78cNPa2qci7ogo-K-VLWlcdW5wL9nHbLmeI
     depends_on:
       - redis
     networks:
